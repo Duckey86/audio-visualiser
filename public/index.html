@@ -197,6 +197,7 @@ body.empty-home-active.diy-mode #search-area:not(.has-results) #search-mode-tabs
 .tag-source{display:inline-flex;align-items:center;height:16px;padding:0 6px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.045);font-size:8.5px;font-weight:800;letter-spacing:.55px;line-height:1;flex-shrink:0}
 .tag-source.netease{color:#ffd8dd;border-color:rgba(217,91,103,.30);background:rgba(217,91,103,.075)}
 .tag-source.qq{color:#f0ffc8;border-color:rgba(191,214,107,.30);background:rgba(191,214,107,.075)}
+.tag-source.spotify{color:#d8fff6;border-color:rgba(30,215,96,.35);background:rgba(30,215,96,.10)}
 .search-result.qq-source:hover{background:rgba(191,214,107,.052)}
 .search-result.netease-source:hover{background:rgba(217,91,103,.045)}
 .podcast-result-head{display:flex;align-items:center;gap:10px;padding:11px 13px 9px;border-bottom:1px solid rgba(255,255,255,.04);background:rgba(255,255,255,.025)}
@@ -1842,34 +1843,8 @@ html.control-glass-svg-ok #visual-guide-btn:hover{
   .lyric-color-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 
-/* Spotify-only cleanup: hide old NetEase / QQ UI */
-#login-modal,
-#user-modal,
-#user-btn,
-#search-mode-song,
-#search-mode-netease,
-#search-mode-qq,
-#search-mode-podcast,
-.netease-source,
-.qq-source,
-.tag-source.netease,
-.tag-source.qq,
-.netease,
-.qq {
-  display: none !important;
-  pointer-events: none !important;
-}
-.tag-source.spotify {
-  color: #d8fff6;
-  border-color: rgba(30, 215, 96, .35);
-  background: rgba(30, 215, 96, .10);
-}
-#visual-guide,
-#visual-guide-btn {
-  display: none !important;
-  pointer-events: none !important;
-}
-
+/* spotify-only-hide-legacy */
+#login-modal,#user-modal,#user-btn,#top-user .user-provider-switch,#login-provider-netease,#login-provider-qq,#login-provider-both,#tab-podcast{display:none!important}
 </style>
 </head>
 <body>
@@ -1937,8 +1912,9 @@ html.control-glass-svg-ok #visual-guide-btn:hover{
       <input id="search-input" type="text" placeholder="搜索歌曲、歌手..." autocomplete="off" spellcheck="false">
     </div>
     <div id="search-mode-tabs" class="search-mode-tabs" role="tablist" aria-label="Search mode">
-      <button id="search-mode-spotify" class="active" type="button" onclick="setSearchMode('spotify')" aria-selected="true">SP</button>
-    </div>
+      <button id="search-mode-song" class="active" type="button" onclick="setSearchMode('song')" aria-selected="true">All</button>
+      <button id="search-mode-spotify" type="button" onclick="setSearchMode('spotify')" aria-selected="true" class="active">SP</button>
+      </div>
     <div id="search-results"></div>
   </div>
   <div id="upload-actions">
@@ -1974,31 +1950,31 @@ html.control-glass-svg-ok #visual-guide-btn:hover{
       <button class="home-card" data-home-tone="mix" type="button" onclick="playHomeSong(0)">
         <div class="home-card-label">Daily</div>
         <div class="home-card-title" id="home-daily-title">每日推荐</div>
-        <div class="home-card-sub" id="home-daily-sub">登录后同步你的今日歌曲</div>
+        <div class="home-card-sub" id="home-daily-sub">从 Spotify 喜欢的音乐里推荐</div>
         <div class="home-card-art" id="home-daily-art"></div>
       </button>
       <button class="home-card" data-home-tone="playlist" type="button" onclick="playHomeSong(1)">
         <div class="home-card-label">Song</div>
-        <div class="home-card-title" id="home-private-title">私人电台</div>
-        <div class="home-card-sub" id="home-private-sub">从你的推荐和歌单里开播</div>
+        <div class="home-card-title" id="home-private-title">推荐歌曲</div>
+        <div class="home-card-sub" id="home-private-sub">从 Spotify 歌曲库里开播</div>
         <div class="home-card-art" id="home-private-art"></div>
       </button>
       <button class="home-card" data-home-tone="mix" type="button" onclick="playHomeRecent()">
         <div class="home-card-label">Continue</div>
         <div class="home-card-title" id="home-continue-title">继续听</div>
-        <div class="home-card-sub" id="home-continue-sub">最近播放会出现在这里</div>
+        <div class="home-card-sub" id="home-continue-sub">Spotify 最近播放会出现在这里</div>
         <div class="home-card-art" id="home-continue-art"></div>
       </button>
       <button class="home-card" data-home-tone="local" type="button" onclick="openHomeInsight()">
         <div class="home-card-label">Profile</div>
         <div class="home-card-title" id="home-profile-title">听歌画像</div>
-        <div class="home-card-sub" id="home-profile-sub">播放几首后生成偏好</div>
+        <div class="home-card-sub" id="home-profile-sub">播放 Spotify 后生成偏好</div>
         <div class="home-card-art" id="home-profile-art"></div>
       </button>
-      <button class="home-card" data-home-tone="local" type="button" onclick="playHomeSong(2)">
-        <div class="home-card-label">Song</div>
-        <div class="home-card-title" id="home-library-title">常听歌手</div>
-        <div class="home-card-sub" id="home-library-sub">你的偏好会在这里汇总</div>
+      <button class="home-card" data-home-tone="local" type="button" onclick="openHomePlaylist(0)">
+        <div class="home-card-label">Playlist</div>
+        <div class="home-card-title" id="home-library-title">更多歌曲</div>
+        <div class="home-card-sub" id="home-library-sub">更多 Spotify 歌曲</div>
         <div class="home-card-art" id="home-library-art"></div>
       </button>
     </div>
@@ -2300,7 +2276,7 @@ html.control-glass-svg-ok #visual-guide-btn:hover{
   <div class="panel-tabs">
     <button id="tab-queue" class="panel-tab active" onclick="switchPlaylistTab('queue')">当前队列</button>
     <button id="tab-pl" class="panel-tab" onclick="switchPlaylistTab('playlists')">我的歌单</button>
-    <button id="tab-podcast" class="panel-tab" onclick="switchPlaylistTab('podcasts')">我的播客</button>
+    <button id="tab-podcast" class="panel-tab" onclick="switchPlaylistTab('podcasts')"></button>
   </div>
   <div id="queue-pane">
     <div class="queue-toolbar">
@@ -2314,12 +2290,12 @@ html.control-glass-svg-ok #visual-guide-btn:hover{
   </div>
   <div id="pl-pane" style="display:none">
     <div class="queue-toolbar">
-      <div class="queue-chip">登录后显示网易云 / QQ 歌单</div>
+      <div class="queue-chip">连接 Spotify 后显示歌单</div>
       <button class="fx-mini-btn ghost" onclick="refreshUserPlaylists(true)" style="height:26px;padding:0 10px;font-size:11px">刷新</button>
     </div>
     <div id="pl-list" style="margin-top:6px"></div>
   </div>
-  <div id="podcast-pane" style="display:none">
+  <div id="podcast-pane" style="display:none!important">
     <div class="queue-toolbar">
       <div class="queue-chip">收藏 / 创建 / 喜欢</div>
       <button class="fx-mini-btn ghost" onclick="refreshUserPlaylists(true)" style="height:26px;padding:0 10px;font-size:11px">刷新</button>
@@ -2753,7 +2729,6 @@ var CONTROLS_AUTO_HIDE_STORE_KEY = 'mineradio-controls-auto-hide-v1';
 var FREE_CAMERA_STORE_KEY = 'mineradio-free-camera-v1';
 var HOTKEY_SETTINGS_STORE_KEY = 'mineradio-hotkey-settings-v1';
 var VISUAL_GUIDE_SEEN_STORE_KEY = 'mineradio-visual-guide-seen-v2';
-try { localStorage.setItem(VISUAL_GUIDE_SEEN_STORE_KEY, '1'); } catch (e) {}
 var LOCAL_BEATMAP_STORE_KEY = 'mineradio-local-beatmaps-v1';
 var LOCAL_BEAT_PREF_STORE_KEY = 'mineradio-local-beatmap-prefs-v1';
 var LOCAL_BEAT_COMBOS = ['', 'downbeat', 'push', 'drop', 'rebound', 'accent'];
@@ -2790,6 +2765,153 @@ var emptyHomeActive = false;
 var homeForcedOpen = false;
 var homeSuppressed = false;
 var homeDiscoverState = { loading: false, loaded: false, loggedIn: false, mode: 'starter', songs: [], playlists: [], podcasts: [], error: '', updatedAt: 0 };
+var spotifyHomeState = { loggedIn: false, checkedAt: 0, playlists: [], savedTracks: [] };
+async function spotifyHomeStatus(force) {
+  var now = Date.now();
+  if (!force && spotifyHomeState.checkedAt && now - spotifyHomeState.checkedAt < 8000) return spotifyHomeState;
+  try {
+    var status = window.SpotifyIntegration && typeof window.SpotifyIntegration.refreshStatus === 'function'
+      ? await window.SpotifyIntegration.refreshStatus(true)
+      : await apiJson('/api/spotify/status?t=' + now);
+    spotifyHomeState.loggedIn = !!(status && status.loggedIn);
+    spotifyHomeState.profile = status && status.profile || null;
+    spotifyHomeState.checkedAt = now;
+  } catch (e) {
+    spotifyHomeState.loggedIn = false;
+    spotifyHomeState.checkedAt = now;
+  }
+  return spotifyHomeState;
+}
+async function ensureSpotifyHomeLogin() {
+  var status = await spotifyHomeStatus(true);
+  if (status.loggedIn) return true;
+  if (window.SpotifyIntegration && typeof window.SpotifyIntegration.showSetup === 'function') window.SpotifyIntegration.showSetup();
+  else showToast('请先连接 Spotify');
+  return false;
+}
+async function spotifyHomeSavedTracks(limit) {
+  var data = await apiJson('/api/spotify/library/tracks?t=' + Date.now());
+  var songs = (data && data.songs || []).map(cloneSong).filter(Boolean);
+  spotifyHomeState.savedTracks = songs;
+  return limit ? songs.slice(0, limit) : songs;
+}
+
+function spotifyLikedPlaylistId() {
+  return '__spotify_liked_tracks__';
+}
+function isSpotifyLikedPlaylistId(id) {
+  id = String(id || '').replace(/^spotify:/, '').replace(/^playlist:/, '');
+  return id === spotifyLikedPlaylistId() || id === 'liked' || id === 'liked-tracks' || id === 'saved-tracks';
+}
+function spotifyLikedPlaylistObject(songs) {
+  songs = songs || spotifyHomeState.savedTracks || [];
+  var firstCover = '';
+  for (var i = 0; i < songs.length; i++) {
+    if (songs[i] && songs[i].cover) { firstCover = songs[i].cover; break; }
+  }
+  return {
+    id: spotifyLikedPlaylistId(),
+    provider: 'spotify',
+    source: 'spotify',
+    virtual: 'liked',
+    name: '喜欢的音乐',
+    description: 'Spotify Liked Songs',
+    cover: firstCover,
+    trackCount: songs.length,
+    owner: 'Spotify',
+    creator: 'Spotify'
+  };
+}
+async function spotifyPlaylistTracks(id) {
+  id = String(id || '').trim();
+  var cleanId = id.replace(/^spotify:playlist:/, '').replace(/^spotify:/, '').replace(/^playlist:/, '');
+
+  if (isSpotifyLikedPlaylistId(id) || isSpotifyLikedPlaylistId(cleanId)) {
+    return await spotifyHomeSavedTracks(100);
+  }
+
+  var r = await apiJson('/api/spotify/library/playlist-tracks?id=' + encodeURIComponent(cleanId));
+  if (r && r.error) throw new Error(r.error);
+  return (r && r.tracks || r && r.songs || []).map(cloneSong).filter(Boolean);
+}
+
+async function spotifyHomePlaylists() {
+  var saved = [];
+  try {
+    saved = await spotifyHomeSavedTracks(100);
+  } catch (e) {
+    console.warn('[SpotifyHomeSavedTracks]', e);
+    saved = spotifyHomeState.savedTracks || [];
+  }
+
+  var liked = spotifyLikedPlaylistObject(saved);
+  var lists = [];
+
+  try {
+    var data = await apiJson('/api/spotify/library/playlists?t=' + Date.now());
+    lists = (data && data.playlists || []).map(function(pl){
+      pl.provider = 'spotify';
+      pl.source = 'spotify';
+      pl.creator = pl.owner || 'Spotify';
+      return pl;
+    }).filter(function(pl){ return pl && pl.id && !isSpotifyLikedPlaylistId(pl.id); });
+  } catch (e) {
+    console.warn('[SpotifyHomePlaylistsApi]', e);
+    // Do not fail the whole UI if Spotify playlist API/route fails.
+    // Liked songs can still act as the stable library source.
+    lists = [];
+  }
+
+  lists = [liked].concat(lists);
+  spotifyHomeState.playlists = lists;
+  return lists;
+}
+
+function recordSpotifyListenNow(song) {
+  if (!song || songProviderKey(song) !== 'spotify') return;
+  var snap = listenSongSnapshot(song);
+  if (!snap.key) return;
+  var now = Date.now();
+  var record = {
+    key: snap.key,
+    id: snap.id || '',
+    uri: snap.uri || song.uri || (snap.id ? 'spotify:track:' + snap.id : ''),
+    spotifyUrl: snap.spotifyUrl || song.spotifyUrl || '',
+    type: 'spotify',
+    sourceKey: 'spotify',
+    provider: 'spotify',
+    name: snap.name || 'Spotify Track',
+    artist: snap.artist || '',
+    cover: snap.cover || '',
+    source: 'Spotify',
+    duration: snap.duration || song.duration || song.durationMs || 0,
+    durationMs: snap.durationMs || song.durationMs || song.duration || 0,
+    playedAt: now,
+    listenMs: 0,
+    completed: false,
+    context: activeRadioContext || null
+  };
+  listenStatsState.history = [record].concat((listenStatsState.history || []).filter(function(item){ return item && item.key !== record.key; })).slice(0, 180);
+  var songStat = listenStatsState.songs[record.key] || { key: record.key, name: record.name, artist: record.artist, cover: record.cover, source: record.source, plays: 0, listenMs: 0, completed: 0, lastPlayedAt: 0 };
+  songStat.name = record.name;
+  songStat.artist = record.artist;
+  songStat.cover = record.cover || songStat.cover || '';
+  songStat.source = 'Spotify';
+  songStat.plays += 1;
+  songStat.lastPlayedAt = now;
+  listenStatsState.songs[record.key] = songStat;
+  String(record.artist || '').split(/\s*\/\s*|\s*,\s*|、|&/).forEach(function(name){
+    name = name.trim();
+    if (!name) return;
+    var artistStat = listenStatsState.artists[name] || { name: name, plays: 0, listenMs: 0, lastPlayedAt: 0 };
+    artistStat.plays += 1;
+    artistStat.lastPlayedAt = now;
+    listenStatsState.artists[name] = artistStat;
+  });
+  saveListenStatsState();
+  if (emptyHomeActive) renderHomeDiscover();
+}
+
 var homeDiscoverToken = 0;
 var homeVisualPresetActive = false;
 var homeVisualPrevPreset = 0;
@@ -13055,7 +13177,7 @@ function makeShelfManager() {
       });
       if (shelfShowsPodcasts() && (shelfPane === 'mine' || shelfMergesCollections()) && myPodcastCollections.length) {
         myPodcastCollections.forEach(function(pc){
-          items.push({ type:'podcastCollection', title: pc.title, sub:(pc.count || 0) + ' items', cover: pc.cover || '', tag:'我的播客', podcastKey: pc.key, itemType: pc.itemType });
+          items.push({ type:'podcastCollection', title: pc.title, sub:(pc.count || 0) + ' items', cover: pc.cover || '', tag:'', podcastKey: pc.key, itemType: pc.itemType });
         });
       }
       if (items.length) return items;
@@ -14437,16 +14559,15 @@ function makeContentListManager() {
         console.warn('[ShelfContentLoadingRender]', playlistId, renderLoadingErr);
       }
       var podcastCollectionKey = String(playlistId || '').indexOf('podcast:') === 0 ? String(playlistId).slice(8) : '';
-      var qqPlaylistId = String(playlistId || '').indexOf('qq:') === 0 ? String(playlistId).slice(3) : '';
       contentKind = podcastCollectionKey ? 'podcast' : 'playlist';
-      // 拉取歌单/播客集合
+      // 拉取歌单/播客集合。Spotify-only: never call old NetEase/QQ playlist routes here.
       var r = null;
       try {
-        r = podcastCollectionKey
-          ? await apiJson('/api/podcast/my/items?key=' + encodeURIComponent(podcastCollectionKey) + '&limit=36')
-          : (qqPlaylistId
-            ? await apiJson('/api/qq/playlist/tracks?id=' + encodeURIComponent(qqPlaylistId))
-            : await apiJson('/api/playlist/tracks?id=' + encodeURIComponent(playlistId)));
+        if (podcastCollectionKey) {
+          r = await apiJson('/api/podcast/my/items?key=' + encodeURIComponent(podcastCollectionKey) + '&limit=36');
+        } else {
+          r = { provider: 'spotify', tracks: await spotifyPlaylistTracks(playlistId) };
+        }
       } catch (e) {
         if (!open || token !== requestToken) return;
         console.warn('[ShelfContentLoadApi]', playlistId, e);
@@ -15375,6 +15496,8 @@ function listenSongSnapshot(song) {
   return {
     key: queueItemKey(song),
     id: song.id || '',
+    uri: song.uri || '',
+    spotifyUrl: song.spotifyUrl || '',
     mid: song.mid || song.songmid || '',
     mediaMid: song.mediaMid || song.media_mid || '',
     type: song.type || 'song',
@@ -15384,7 +15507,8 @@ function listenSongSnapshot(song) {
     cover: songCoverSrc(song, 220) || song.cover || '',
     source: songSourceLabel(song),
     provider: song.provider || song.source || song.type || '',
-    duration: Number(song.duration) || 0,
+    duration: Number(song.duration || song.durationMs) || 0,
+    durationMs: Number(song.durationMs || song.duration) || 0,
   };
 }
 function beginListenSession(song, context) {
@@ -15437,6 +15561,11 @@ function finalizeListenSession(completed) {
     mediaMid: snap.mediaMid || '',
     type: snap.type || 'song',
     sourceKey: snap.sourceKey || '',
+    uri: snap.uri || '',
+    spotifyUrl: snap.spotifyUrl || '',
+    provider: snap.provider || snap.sourceKey || '',
+    duration: snap.duration || snap.durationMs || 0,
+    durationMs: snap.durationMs || snap.duration || 0,
     name: snap.name || '未知歌曲',
     artist: snap.artist || '',
     cover: snap.cover || '',
@@ -15488,10 +15617,9 @@ function homeListenSummary() {
 }
 function fallbackHomeTiles() {
   return [
-    { kind: 'login', title: '登录同步歌单', sub: '网易云 / QQ 音乐' },
-    { kind: 'search', title: '搜索一首歌', sub: '原唱优先', query: '' },
+    { kind: 'login', title: '连接 Spotify', sub: '同步喜欢的音乐和歌单' },
+    { kind: 'search', title: '搜索 Spotify', sub: '输入歌名或歌手', query: '' },
     { kind: 'local', title: '导入本地音乐', sub: '本地文件也能可视化' },
-    { kind: 'podcastSearch', title: '搜索播客', sub: '长内容 / 电台' },
     { kind: 'guide', title: '看看视觉舞台', sub: '粒子 / 歌词 / 封面' },
   ];
 }
@@ -15537,7 +15665,7 @@ function renderHomeTiles() {
   if (!row) return;
   var tiles = [];
   var loggedOutHome = !homeDiscoverState.loggedIn && !hasAnyPlatformLogin();
-  var weatherSongs = homeWeatherRadioState.radio && homeWeatherRadioState.radio.songs || [];
+  var weatherSongs = []; // Spotify-only: don't fill Home tiles from old NE/QQ weather radio
   var summary = homeListenSummary();
   if (summary.recent && tiles.length < 5) {
     tiles.push({ kind: 'recent', title: summary.recent.name || '继续听', sub: summary.recent.artist || summary.recent.source || '', cover: summary.recent.cover, record: summary.recent });
@@ -15585,85 +15713,48 @@ function renderHomeTiles() {
 }
 function renderHomeDiscover() {
   var sub = document.getElementById('home-subtitle');
-  var loggedOutHome = !homeDiscoverState.loggedIn && !hasAnyPlatformLogin();
+  var loggedOutHome = !homeDiscoverState.loggedIn;
   var weather = homeWeatherRadioState.weather;
   var radio = homeWeatherRadioState.radio;
   var weatherLocation = weather && weather.location && weather.location.name || homeWeatherRadioState.city || '上海';
   var weatherTitle = document.getElementById('home-weather-title');
   var weatherKicker = document.getElementById('home-weather-kicker');
   var weatherMeta = document.getElementById('home-weather-meta');
-  if (weatherTitle) weatherTitle.textContent = '我的音乐库';
-  if (weatherKicker) weatherKicker.textContent = 'Mineradio · Your Library';
-  if (sub) {
-    if (loggedOutHome) sub.textContent = '登录后会把你的歌单、常听歌手和最近播放放在这里；也可以直接搜索或导入本地音乐。';
-    else sub.textContent = '从你的歌单、最近播放和常听歌手开始，天气电台放在需要氛围的时候再开。';
-  }
+  if (weatherTitle) weatherTitle.textContent = 'Spotify 音乐库';
+  if (weatherKicker) weatherKicker.textContent = 'Mineradio · Spotify Library';
+  if (sub) sub.textContent = loggedOutHome ? '连接 Spotify 后会把你的歌单、喜欢的音乐和最近播放放在这里。' : '从你的 Spotify 歌单、喜欢的音乐和最近播放开始。';
   if (weatherMeta) {
     var meta = [];
-    if (weather) {
-      meta.push(weatherLocation);
-      meta.push(weather.label + ' · ' + Math.round(weather.temperature || 0) + '°');
-      meta.push('体感 ' + Math.round(weather.apparentTemperature || weather.temperature || 0) + '°');
-      if (isFinite(weather.humidity)) meta.push('湿度 ' + Math.round(weather.humidity) + '%');
-    } else {
-      meta.push(weatherLocation);
-      meta.push(homeWeatherRadioState.error ? '天气暂不可用' : '正在整理天气');
-    }
+    if (weather && weather.condition) meta.push(weatherLocation + ' · ' + weather.condition);
+    if (radio && radio.mood) meta.push(radio.mood);
+    if (!meta.length) meta.push(homeDiscoverState.loggedIn ? 'Spotify 已连接' : '等待 Spotify 连接');
     weatherMeta.innerHTML = meta.map(function(text){ return '<span class="home-weather-pill">' + escHtml(text) + '</span>'; }).join('');
   }
-  var daily = homeDiscoverState.songs[0] || null;
-  var cardSongB = homeDiscoverState.songs[1] || null;
-  var cardSongC = homeDiscoverState.songs[2] || null;
-  var playlistItem = homeDiscoverState.playlists[0] || null;
-  var podcastItem = homeDiscoverState.podcasts[0] || null;
   var summary = homeListenSummary();
-  var weatherCardTitle = document.getElementById('home-weather-card-title');
-  var weatherCardSub = document.getElementById('home-weather-card-sub');
-  var dailyTitle = document.getElementById('home-daily-title');
-  var dailySub = document.getElementById('home-daily-sub');
-  var privateTitle = document.getElementById('home-private-title');
-  var privateSub = document.getElementById('home-private-sub');
-  var continueTitle = document.getElementById('home-continue-title');
-  var continueSub = document.getElementById('home-continue-sub');
-  var profileTitle = document.getElementById('home-profile-title');
-  var profileSub = document.getElementById('home-profile-sub');
-  var libTitle = document.getElementById('home-library-title');
-  var libSub = document.getElementById('home-library-sub');
-  if (weatherCardTitle) weatherCardTitle.textContent = '我的歌单';
-  if (weatherCardSub) {
-    weatherCardSub.textContent = playlistItem ? (((playlistItem.trackCount || 0) ? playlistItem.trackCount + ' 首 · ' : '') + (playlistItem.creator || '打开左侧歌单库')) : '打开左侧歌单库';
-  }
-  if (continueTitle) continueTitle.textContent = summary.recent ? summary.recent.name : '继续听';
-  if (continueSub) continueSub.textContent = summary.recent ? (summary.recent.artist || summary.recent.source || '最近播放') : '最近播放会出现在这里';
-  if (profileTitle) profileTitle.textContent = summary.topArtist ? summary.topArtist.name : (summary.topSong ? summary.topSong.name : '听歌画像');
-  if (profileSub) profileSub.textContent = summary.topArtist ? ('常听歌手 · ' + summary.topArtist.plays + ' 次') : (summary.totalPlays ? summary.totalPlays + ' 次有效播放' : '播放几首后生成偏好');
-  if (loggedOutHome) {
-    if (dailyTitle) dailyTitle.textContent = '每日推荐';
-    if (dailySub) dailySub.textContent = '登录后同步你的今日歌曲';
-    if (privateTitle) privateTitle.textContent = '推荐歌曲';
-    if (privateSub) privateSub.textContent = '登录后同步更多歌曲';
-    if (libTitle) libTitle.textContent = '更多歌曲';
-    if (libSub) libSub.textContent = '播放后会继续补全推荐';
-    setHomeArt('home-weather-art', '', 280);
-    setHomeArt('home-daily-art', '', 280);
-    setHomeArt('home-private-art', '', 280);
-    setHomeArt('home-continue-art', summary.recent && summary.recent.cover, 280);
-    setHomeArt('home-profile-art', summary.topSong && summary.topSong.cover || summary.recent && summary.recent.cover, 280);
-    setHomeArt('home-library-art', '', 280);
-  } else {
-    if (dailyTitle) dailyTitle.textContent = daily ? daily.name : '每日推荐';
-    if (dailySub) dailySub.textContent = daily ? ((daily.artist || songSourceLabel(daily) || '今日歌曲') + ' · 点击播放今日队列') : '同步你的今日歌曲';
-    if (privateTitle) privateTitle.textContent = cardSongB ? cardSongB.name : '私人雷达';
-    if (privateSub) privateSub.textContent = cardSongB ? (cardSongB.artist || songSourceLabel(cardSongB) || '推荐歌曲') : (homeDiscoverState.songs.length + ' 首 · 根据今日推荐与常听偏好');
-    if (libTitle) libTitle.textContent = cardSongC ? cardSongC.name : (summary.topArtist ? summary.topArtist.name : '更多歌曲');
-    if (libSub) libSub.textContent = cardSongC ? (cardSongC.artist || songSourceLabel(cardSongC) || '推荐歌曲') : (summary.topArtist ? ('歌手偏好 · ' + summary.topArtist.plays + ' 次') : '播放几首后生成你的偏好');
-    setHomeArt('home-weather-art', (userPlaylists[0] && userPlaylists[0].cover) || (playlistItem && playlistItem.cover) || daily && daily.cover, 280);
-    setHomeArt('home-daily-art', daily && daily.cover, 280);
-    setHomeArt('home-private-art', cardSongB && cardSongB.cover || daily && daily.cover || summary.recent && summary.recent.cover || playlistItem && playlistItem.cover, 280);
-    setHomeArt('home-continue-art', summary.recent && summary.recent.cover || playlistItem && playlistItem.cover, 280);
-    setHomeArt('home-profile-art', summary.topSong && summary.topSong.cover || podcastItem && podcastItem.cover, 280);
-    setHomeArt('home-library-art', cardSongC && cardSongC.cover || summary.topSong && summary.topSong.cover || summary.recent && summary.recent.cover || podcastItem && podcastItem.cover, 280);
-  }
+  var cardSongA = homeDiscoverState.songs[0];
+  var cardSongB = homeDiscoverState.songs[1] || homeDiscoverState.songs[0];
+  var cardSongC = homeDiscoverState.songs[2] || homeDiscoverState.songs[0];
+  var playlistItem = homeDiscoverState.playlists[0];
+  var recent = summary.recent;
+  var topArtist = summary.topArtist;
+  setHomeCardText('home-weather-card-title', '我的歌单');
+  setHomeCardText('home-weather-card-sub', homeDiscoverState.loggedIn ? (homeDiscoverState.playlists.length ? homeDiscoverState.playlists.length + ' 个 Spotify 歌单' : '打开 Spotify 歌单库') : '连接 Spotify 后显示歌单');
+  setHomeCardText('home-daily-title', cardSongA && cardSongA.name || '每日推荐');
+  setHomeCardText('home-daily-sub', cardSongA ? (cardSongA.artist || 'Spotify') : '从 Spotify 喜欢的音乐开始');
+  setHomeCardText('home-private-title', cardSongB && cardSongB.name || '推荐歌曲');
+  setHomeCardText('home-private-sub', cardSongB ? (cardSongB.artist || 'Spotify') : '播放更多 Spotify 歌曲');
+  setHomeCardText('home-continue-title', recent && recent.name || '继续听');
+  setHomeCardText('home-continue-sub', recent ? (recent.artist || recent.source || 'Spotify') : '最近播放会出现在这里');
+  setHomeCardText('home-profile-title', topArtist && topArtist.name || '听歌画像');
+  setHomeCardText('home-profile-sub', topArtist ? ('常听歌手 · ' + topArtist.plays + ' 次') : '播放 Spotify 后生成偏好');
+  setHomeCardText('home-library-title', playlistItem && playlistItem.name || '更多歌曲');
+  setHomeCardText('home-library-sub', playlistItem ? ((playlistItem.trackCount || 0) + ' 首 · Spotify 歌单') : '打开 Spotify 歌单或喜欢的音乐');
+  setHomeArt('home-weather-art', playlistItem && playlistItem.cover || cardSongA && cardSongA.cover || recent && recent.cover, 280);
+  setHomeArt('home-daily-art', cardSongA && cardSongA.cover || playlistItem && playlistItem.cover, 280);
+  setHomeArt('home-private-art', cardSongB && cardSongB.cover || cardSongA && cardSongA.cover, 280);
+  setHomeArt('home-continue-art', recent && recent.cover || cardSongA && cardSongA.cover, 280);
+  setHomeArt('home-profile-art', topArtist && topArtist.cover || cardSongC && cardSongC.cover || recent && recent.cover, 280);
+  setHomeArt('home-library-art', playlistItem && playlistItem.cover || cardSongC && cardSongC.cover || cardSongA && cardSongA.cover, 280);
   renderHomeTiles();
 }
 async function loadHomeDiscover(force) {
@@ -15674,18 +15765,31 @@ async function loadHomeDiscover(force) {
   homeDiscoverState.error = '';
   renderHomeDiscover();
   try {
-    var data = await apiJson('/api/discover/home?t=' + Date.now());
+    var status = await spotifyHomeStatus(true);
     if (token !== homeDiscoverToken) return;
-    homeDiscoverState.loggedIn = !!(data && data.loggedIn);
-    homeDiscoverState.mode = data && data.mode || (homeDiscoverState.loggedIn ? 'member' : 'starter');
-    homeDiscoverState.songs = homeDiscoverState.loggedIn ? (data && data.dailySongs || []).map(cloneSong) : [];
-    homeDiscoverState.playlists = homeDiscoverState.loggedIn ? (data && data.playlists || []) : [];
-    homeDiscoverState.podcasts = homeDiscoverState.loggedIn ? (data && data.podcasts || []) : [];
-    homeDiscoverState.updatedAt = Number(data && data.updatedAt) || Date.now();
+    homeDiscoverState.loggedIn = !!(status && status.loggedIn);
+    homeDiscoverState.mode = homeDiscoverState.loggedIn ? 'spotify' : 'starter';
+    if (!homeDiscoverState.loggedIn) {
+      homeDiscoverState.songs = [];
+      homeDiscoverState.playlists = [];
+      homeDiscoverState.podcasts = [];
+      homeDiscoverState.loaded = true;
+      homeDiscoverState.updatedAt = Date.now();
+      return;
+    }
+    var saved = [];
+    var lists = [];
+    try { saved = await spotifyHomeSavedTracks(100); } catch (savedErr) { console.warn('[SpotifyHomeSavedTracks]', savedErr); }
+    try { lists = await spotifyHomePlaylists(); } catch (plErr) { console.warn('[SpotifyHomePlaylists]', plErr); lists = saved.length ? [spotifyLikedPlaylistObject(saved)] : []; }
+    if (token !== homeDiscoverToken) return;
+    homeDiscoverState.songs = saved.map(cloneSong);
+    homeDiscoverState.playlists = lists;
+    homeDiscoverState.podcasts = [];
+    homeDiscoverState.updatedAt = Date.now();
     homeDiscoverState.loaded = true;
   } catch (e) {
-    console.warn('home discover failed:', e);
-    if (token === homeDiscoverToken) homeDiscoverState.error = 'DISCOVER_FAILED';
+    console.warn('spotify home discover failed:', e);
+    if (token === homeDiscoverToken) homeDiscoverState.error = 'SPOTIFY_DISCOVER_FAILED';
   } finally {
     if (token === homeDiscoverToken) {
       homeDiscoverState.loading = false;
@@ -16000,19 +16104,7 @@ function updateEmptyHomeVisibility(opts) {
     setPeek(document.getElementById('search-area'), true, 'search');
     renderHomeDiscover();
     scheduleHomeWeatherLoad(opts.forceLoad ? 1400 : 2400);
-    if (!hasAnyPlatformLogin()) {
-      homeDiscoverState.loading = false;
-      homeDiscoverState.loaded = true;
-      homeDiscoverState.loggedIn = false;
-      homeDiscoverState.mode = 'starter';
-      homeDiscoverState.songs = [];
-      homeDiscoverState.playlists = [];
-      homeDiscoverState.podcasts = [];
-      renderHomeDiscover();
-    } else {
-      renderHomeDiscover();
-      scheduleVisualApply(function(){ loadHomeDiscover(!!opts.forceLoad); }, 220, 1200);
-    }
+    scheduleVisualApply(function(){ loadHomeDiscover(!!opts.forceLoad); }, 220, 1200);
   }
   return show;
 }
@@ -16022,7 +16114,7 @@ function runHomeSearch(query, mode) {
   setHomeControlsLocked(false);
   updateEmptyHomeVisibility();
   if (mode) setSearchMode(mode);
-  else if (searchMode === 'podcast') setSearchMode('spotify');
+  else if (searchMode === 'podcast') setSearchMode('song');
   var q = String(query || '').trim();
   var area = document.getElementById('search-area');
   if (area) setPeek(area, true, 'search');
@@ -16060,49 +16152,43 @@ async function playHomeDaily() {
   homeForcedOpen = false;
   homeSuppressed = false;
   setHomeControlsLocked(false);
-  if (!hasAnyPlatformLogin() && !homeDiscoverState.loggedIn) {
-    showLoginModal({ source: 'home-daily' });
-    return;
-  }
-  await waitForHomeDiscoverIdle();
   if (!homeDiscoverState.loaded || (!homeDiscoverState.songs.length && !homeDiscoverState.loading)) {
     await loadHomeDiscover(true);
   }
+  if (!homeDiscoverState.loggedIn) {
+    await ensureSpotifyHomeLogin();
+    return;
+  }
   if (!homeDiscoverState.songs.length) {
-    runHomeSearch('每日推荐');
+    showToast('Spotify 喜欢的音乐为空，先搜索几首歌吧');
+    runHomeSearch('');
     return;
   }
   playQueue = homeDiscoverState.songs.map(cloneSong);
   currentIdx = 0;
-  safeRenderQueuePanel('home-daily');
-  safeShelfRebuild('home-daily', true);
+  safeRenderQueuePanel('spotify-home-daily');
+  safeShelfRebuild('spotify-home-daily', true);
   forcePlaybackControlsInteractive();
-  playQueueAt(0).catch(function(e){ console.warn('[HomeDailyPlay]', e); });
+  playQueueAt(0).catch(function(e){ console.warn('[SpotifyHomeDaily]', e); });
 }
 async function playHomePrivateRadio() {
   homeForcedOpen = false;
   homeSuppressed = false;
   setHomeControlsLocked(false);
-  if (!hasAnyPlatformLogin() && !homeDiscoverState.loggedIn) {
-    showLoginModal({ source: 'home-private' });
-    return;
-  }
-  await waitForHomeDiscoverIdle();
   if (!homeDiscoverState.loaded || ((!homeDiscoverState.playlists.length && !homeDiscoverState.songs.length) && !homeDiscoverState.loading)) {
     await loadHomeDiscover(true);
   }
-  if (homeDiscoverState.songs.length) {
-    playQueue = homeDiscoverState.songs.map(cloneSong);
-    currentIdx = 0;
-    safeRenderQueuePanel('home-private-radio');
-    safeShelfRebuild('home-private-radio', true);
-    forcePlaybackControlsInteractive();
-    playQueueAt(0).catch(function(e){ console.warn('[HomePrivatePlay]', e); });
+  if (!homeDiscoverState.loggedIn) {
+    await ensureSpotifyHomeLogin();
     return;
   }
-  var item = homeDiscoverState.playlists[0];
-  if (item && item.id) {
-    await loadPlaylistIntoQueueById(item.id, true, item.name || '私人雷达');
+  if (homeDiscoverState.songs.length) {
+    playQueue = homeDiscoverState.songs.map(cloneSong);
+    currentIdx = Math.min(1, playQueue.length - 1);
+    safeRenderQueuePanel('spotify-home-more');
+    safeShelfRebuild('spotify-home-more', true);
+    forcePlaybackControlsInteractive();
+    playQueueAt(currentIdx).catch(function(e){ console.warn('[SpotifyHomeMore]', e); });
     return;
   }
   openHomeLibrary();
@@ -16124,21 +16210,22 @@ function playHomeSong(index) {
   forcePlaybackControlsInteractive();
   playQueueAt(currentIdx).catch(function(e){ console.warn('[HomeSongPlay]', e); });
 }
-function openHomePlaylist(index) {
+async function openHomePlaylist(index) {
   homeForcedOpen = false;
   homeSuppressed = false;
   setHomeControlsLocked(false);
-  if (!hasAnyPlatformLogin() && !homeDiscoverState.loggedIn) {
-    runHomeSearch('');
+  openPlaylistPanelTab('playlists', true);
+  if (!homeDiscoverState.loaded || !homeDiscoverState.playlists.length) await loadHomeDiscover(true);
+  if (!homeDiscoverState.loggedIn) {
+    await ensureSpotifyHomeLogin();
     return;
   }
-  openPlaylistPanelTab('playlists', true);
   var item = homeDiscoverState.playlists[index];
   if (!item || !item.id) {
-    openHomeLibrary();
+    await refreshUserPlaylists(true);
     return;
   }
-  loadPlaylistIntoQueueById(item.id, true, item.name || '');
+  loadPlaylistIntoQueueById(item.id, true, item.name || 'Spotify 歌单');
 }
 function openHomePodcast(index) {
   homeForcedOpen = false;
@@ -16147,7 +16234,7 @@ function openHomePodcast(index) {
   openPlaylistPanelTab('podcasts', true);
   var item = homeDiscoverState.podcasts[index];
   if (!item || !item.id) {
-    setSearchMode('spotify');
+    setSearchMode('podcast');
     loadPodcastHot();
     return;
   }
@@ -16160,15 +16247,12 @@ function openHomeThirdCard() {
   }
   openHomePodcast(0);
 }
-function openHomeLibrary() {
-  if (!hasAnyPlatformLogin() && !homeDiscoverState.loggedIn) {
-    openHomeProductGuide();
-    return;
-  }
+async function openHomeLibrary() {
   homeSuppressed = false;
   setHomeControlsLocked(false);
   openPlaylistPanelTab('playlists', true);
-  refreshUserPlaylists(true);
+  await loadHomeDiscover(true);
+  await refreshUserPlaylists(true);
 }
 function goHome() {
   if (homeForcedOpen || emptyHomeActive) {
@@ -16270,9 +16354,25 @@ document.addEventListener('click', function(e) {
 }, true);
 function songFromListenRecord(record) {
   if (!record) return null;
-  var provider = record.sourceKey || '';
+  var provider = record.sourceKey || record.provider || '';
   if (!provider && record.type === 'qq') provider = 'qq';
-  if (!provider) provider = record.mid ? 'qq' : 'netease';
+  if (!provider && record.type === 'spotify') provider = 'spotify';
+  if (!provider) provider = record.mid ? 'qq' : 'spotify';
+  if (provider === 'spotify') {
+    return {
+      provider: 'spotify',
+      source: 'spotify',
+      type: 'spotify',
+      id: record.id || '',
+      uri: record.uri || (record.id ? 'spotify:track:' + record.id : ''),
+      spotifyUrl: record.spotifyUrl || '',
+      name: record.name || '继续听',
+      artist: record.artist || '',
+      cover: record.cover || '',
+      duration: record.duration || record.durationMs || 0,
+      durationMs: record.durationMs || record.duration || 0
+    };
+  }
   return {
     provider: provider,
     source: provider,
@@ -16349,7 +16449,7 @@ function handleHomeTileClick(index) {
   else if (item.kind === 'guide') openHomeProductGuide();
   else if (item.kind === 'playlist') openHomePlaylist(item.index);
   else if (item.kind === 'podcast') openHomePodcast(item.index);
-  else if (item.kind === 'podcastSearch') { setSearchMode('spotify'); loadPodcastHot(); }
+  else if (item.kind === 'podcastSearch') { setSearchMode('podcast'); loadPodcastHot(); }
   else if (item.kind === 'library') openHomeLibrary();
   else runHomeSearch(item.query || item.title || '');
 }
@@ -16365,10 +16465,11 @@ function songDurationLabel(song) {
 }
 function songSourceLabel(song) {
   if (!song) return '未知';
+  if (song.provider === 'spotify' || song.source === 'spotify' || song.type === 'spotify') return 'Spotify';
   if (song.provider === 'qq' || song.source === 'qq' || song.type === 'qq') return 'QQ 音乐';
   if (song.type === 'local') return '本地上传';
-  if (song.type === 'podcast' || song.source === 'podcast') return '网易云播客';
-  return '网易云音乐';
+  if (song.type === 'podcast' || song.source === 'podcast') return '播客';
+  return 'Spotify';
 }
 function detailRow(label, value) {
   value = value == null || value === '' ? '未知' : value;
@@ -16620,7 +16721,20 @@ function openArtistDetailForSong(song) {
   }
 }
 function resolveArtistSongForDetail(song, artist) {
-  return Promise.resolve(null);
+  var provider = songProviderKey(song) === 'qq' ? 'qq' : 'netease';
+  var url = provider === 'qq'
+    ? '/api/qq/search?keywords=' + encodeURIComponent(artist) + '&limit=8'
+    : '/api/search?keywords=' + encodeURIComponent(artist) + '&limit=10';
+  return apiJson(url).then(function(r){
+    var songs = (r && r.songs) || [];
+    for (var i = 0; i < songs.length; i++) {
+      var candidate = songs[i];
+      if (!candidate) continue;
+      if (!artistNameMatches([artist], candidate.artist || '')) continue;
+      if (currentArtistId(candidate) || currentQQArtistMid(candidate)) return candidate;
+    }
+    return null;
+  });
 }
 function setCustomCoverForCurrent(dataUrl, opts) {
   if (!dataUrl) return;
@@ -17280,17 +17394,22 @@ function runSearchHistory(q) {
   $input.focus();
 }
 function updateSearchModeTabs() {
-  searchMode = 'spotify';
-  var spotifyBtn = document.getElementById('search-mode-spotify');
-  if (spotifyBtn) {
-    spotifyBtn.classList.add('active');
-    spotifyBtn.setAttribute('aria-selected', 'true');
+  ['all','netease','qq','podcast'].forEach(function(key){
+    var btn = document.getElementById('search-mode-' + key);
+    if (btn) btn.style.display = 'none';
+  });
+  var sp = document.getElementById('search-mode-spotify');
+  if (sp) {
+    sp.style.display = '';
+    sp.classList.add('active');
+    sp.setAttribute('aria-selected', 'true');
   }
   if ($input) $input.placeholder = '搜索 Spotify...';
   requestAnimationFrame(updateSearchPillGlassDisplacementMap);
 }
 function setSearchMode(mode) {
-  searchMode = 'spotify';
+  mode = 'spotify';
+  if (searchMode !== mode) searchMode = mode;
   updateSearchModeTabs();
   clearSearchResults();
   var searchArea = document.getElementById('search-area');
@@ -17496,25 +17615,32 @@ document.addEventListener('click', function(e){
 updateSearchModeTabs();
 
 function songProviderKey(song) {
-  return 'spotify';
+  if (song && (song.provider === 'spotify' || song.source === 'spotify' || song.type === 'spotify')) return 'spotify';
+  if (song && (song.provider === 'qq' || song.source === 'qq' || song.type === 'qq')) return 'qq';
+  return 'netease';
 }
 function songSourceTagHtml(song) {
-  return '<span class="tag-source spotify">SP</span>';
+  var key = songProviderKey(song);
+  var label = key === 'spotify' ? 'SP' : (key === 'qq' ? 'QQ' : 'NE');
+  return '<span class="tag-source ' + key + '">' + label + '</span>';
 }
 function searchResultMetaText(song) {
   var bits = [];
-  if (song && song.artist) bits.push(song.artist);
-  if (song && song.album) bits.push(song.album);
-  return bits.join('  ·  ') || 'Spotify';
+  if (song.artist) bits.push(song.artist);
+  if (song.album) bits.push(song.album);
+  if (songProviderKey(song) === 'qq' && !song.playable) bits.push('QQ 播放需会话/授权');
+  return bits.join('  ·  ') || songSourceLabel(song);
 }
 function searchResultMetaHtml(song, index) {
   song = song || {};
   var artist = String(song.artist || '').trim();
   var bits = [];
   if (song.album) bits.push(song.album);
+  if (songProviderKey(song) === 'qq' && !song.playable) bits.push('QQ 播放需会话/授权');
   var tail = bits.length ? (' · ' + escHtml(bits.join('  ·  '))) : '';
   if (!artist) return escHtml(searchResultMetaText(song));
-  return escHtml(artist) + tail + ' · Spotify Connect';
+  if (songProviderKey(song) === 'spotify') return escHtml(artist) + tail + ' · Spotify Connect';
+  return '<button class="search-artist-link" type="button" onclick="event.stopPropagation();openSearchResultArtist(' + index + ')">' + escHtml(artist) + '</button>' + tail;
 }
 function openSearchResultArtist(index) {
   var song = playlist && playlist[index];
@@ -18026,6 +18152,7 @@ function bindVolumeControls() {
 // ============================================================
 function queueItemKey(song) {
   if (!song) return '';
+  if (song.provider === 'spotify' || song.source === 'spotify' || song.type === 'spotify') return 'spotify:' + (song.uri || song.id || (song.name + '|' + song.artist));
   if (song.provider === 'qq' || song.source === 'qq' || song.type === 'qq') return 'qq:' + (song.mid || song.songmid || song.id || (song.name + '|' + song.artist));
   if (song.type === 'podcast' && song.programId) return 'podcast:' + song.programId;
   if (song.localKey) return 'local:' + song.localKey;
@@ -18213,9 +18340,21 @@ function isSameTitleArtist(source, candidate) {
   return a.some(function(name){ return b.indexOf(name) >= 0; });
 }
 function alternatePlaybackProvider(song) {
-  return 'spotify';
+  return songProviderKey(song) === 'qq' ? 'netease' : 'qq';
 }
 async function searchAlternatePlatformSong(song) {
+  var target = alternatePlaybackProvider(song);
+  var artist = artistNameParts(song)[0] || '';
+  var query = [song.name || song.title || '', song.artist || artist].filter(Boolean).join(' ').trim();
+  if (!query) return null;
+  var url = target === 'qq'
+    ? '/api/qq/search?keywords=' + encodeURIComponent(query) + '&limit=8'
+    : '/api/search?keywords=' + encodeURIComponent(query) + '&limit=12';
+  var data = await apiJson(url);
+  var list = data && (data.songs || data.result || []);
+  for (var i = 0; i < list.length; i++) {
+    if (isSameTitleArtist(song, list[i])) return cloneSong(list[i]);
+  }
   return null;
 }
 function markQueueItemPlaybackFailed(idx) {
@@ -18437,6 +18576,7 @@ async function playQueueAt(idx, opts) {
     if (sourceProvider === 'spotify') {
       if (!window.SpotifyIntegration) throw new Error('Spotify 模块未加载');
       await window.SpotifyIntegration.prepareTrack(song);
+      recordSpotifyListenNow(song);
       return;
     }
     if (window.SpotifyIntegration) window.SpotifyIntegration.deactivate();
@@ -19293,20 +19433,19 @@ function scrollPlaylistPanelToCurrent() {
   });
 }
 function switchPlaylistTab(tab) {
-  tab = tab === 'podcasts' ? 'podcasts' : (tab === 'playlists' ? 'playlists' : 'queue');
+  tab = tab === 'playlists' ? 'playlists' : 'queue';
   queueViewTab = tab;
   document.getElementById('tab-queue').classList.toggle('active', tab === 'queue');
   document.getElementById('tab-pl').classList.toggle('active', tab === 'playlists');
   var podcastTab = document.getElementById('tab-podcast');
-  if (podcastTab) podcastTab.classList.toggle('active', tab === 'podcasts');
+  if (podcastTab) podcastTab.style.display = 'none';
   document.getElementById('queue-pane').style.display = tab === 'queue' ? '' : 'none';
   document.getElementById('pl-pane').style.display = tab === 'playlists' ? '' : 'none';
   var podcastPane = document.getElementById('podcast-pane');
-  if (podcastPane) podcastPane.style.display = tab === 'podcasts' ? '' : 'none';
-  if (tab === 'playlists' || tab === 'podcasts') refreshUserPlaylists();
+  if (podcastPane) podcastPane.style.display = 'none';
+  if (tab === 'playlists') refreshUserPlaylists();
   if (tab === 'queue') animateVisiblePanelList(document.getElementById('queue-list'), '.queue-item', document.getElementById('playlist-panel'), '.queue-item.now');
   if (tab === 'playlists') animateVisiblePanelList(document.getElementById('pl-list'), '.pl-card', document.getElementById('playlist-panel'));
-  if (tab === 'podcasts') animateVisiblePanelList(document.getElementById('podcast-list'), '.pl-card', document.getElementById('playlist-panel'));
 }
 function setMiniQueueOpen(open) {
   miniQueueOpen = !!open;
@@ -19401,83 +19540,76 @@ function renderQueuePanel(opts) {
   renderMiniQueuePanel({ scrollCurrent: miniQueueOpen });
 }
 async function refreshUserPlaylists(force) {
-  if (!loginStatus.loggedIn && !qqLoginStatus.loggedIn) {
-    resetPlaylistPanelRenderLimit();
-    document.getElementById('pl-list').innerHTML = '<div style="text-align:center;padding:24px 0;color:rgba(255,255,255,.32);font-size:11.5px">登录后显示个人歌单</div>';
-    var podcastListLoggedOut = document.getElementById('podcast-list');
-    if (podcastListLoggedOut) podcastListLoggedOut.innerHTML = '<div style="text-align:center;padding:14px 0;color:rgba(255,255,255,.28);font-size:11.5px">登录后显示我的播客</div>';
-    return;
-  }
   if (force) resetPlaylistPanelRenderLimit();
-  var hasCachedQQPlaylists = userPlaylists.some(function(pl){ return pl && pl.provider === 'qq'; });
-  var needsQQRefresh = qqLoginStatus.loggedIn && !hasCachedQQPlaylists;
-  if (!force && !needsQQRefresh && (userPlaylists.length || myPodcastCollections.length)) {
-    var cachedAnimate = isPlaylistPanelVisibleForRender();
-    renderUserPlaylistsList({ animate: cachedAnimate });
-    renderMyPodcastCollections({ animate: cachedAnimate });
+  var $pl = document.getElementById('pl-list');
+  var $pod = document.getElementById('podcast-list');
+  if ($pod) $pod.innerHTML = '';
+
+  var status = await spotifyHomeStatus(true);
+  if (!status.loggedIn) {
+    userPlaylists = [];
+    myPodcastCollections = [];
+    resetPlaylistPanelRenderLimit();
+    if ($pl) $pl.innerHTML = '<div style="text-align:center;padding:24px 0;color:rgba(255,255,255,.32);font-size:11.5px">请先连接 Spotify</div>';
+    if (window.SpotifyIntegration && typeof window.SpotifyIntegration.showSetup === 'function') window.SpotifyIntegration.showSetup();
     return;
   }
-  var $pl = document.getElementById('pl-list');
+
+  if (!force && userPlaylists.length) {
+    renderUserPlaylistsList({ animate: isPlaylistPanelVisibleForRender() });
+    return;
+  }
+
   if ($pl) {
     $pl.innerHTML = miniQueueSkeleton();
     if (window.gsap) animateListItems($pl, '.mini-queue-skeleton', { x: 0, y: 6, stagger: 0.018, duration: 0.18, limit: 3 });
   }
-  var $pod = document.getElementById('podcast-list');
-  if ($pod) $pod.innerHTML = miniQueueSkeleton();
+
   try {
-    var result = await Promise.all([
-      loginStatus.loggedIn ? apiJson('/api/user/playlists') : Promise.resolve({ playlists: [] }),
-      loginStatus.loggedIn ? apiJson('/api/podcast/my') : Promise.resolve({ collections: [], loggedIn: false }),
-      qqLoginStatus.loggedIn ? apiJson('/api/qq/user/playlists') : Promise.resolve({ playlists: [] })
-    ]);
-    var neteaseLists = (result[0].playlists || []).map(function(pl){ pl.provider = 'netease'; pl.source = 'netease'; return pl; });
-    qqPlaylists = (result[2].playlists || []).map(function(pl){ pl.provider = 'qq'; pl.source = 'qq'; return pl; });
-    userPlaylists = neteaseLists.concat(qqPlaylists);
-    myPodcastCollections = result[1].collections || [];
-    var animatePanel = isPlaylistPanelVisibleForRender();
-    renderUserPlaylistsList({ animate: animatePanel, reset: true });
-    renderMyPodcastCollections({ animate: animatePanel });
-    if (emptyHomeActive) renderHomeDiscover();
-    scheduleShelfRebuild('refresh-user-playlists', true);
-  } catch (e) { console.warn(e); }
+    userPlaylists = await spotifyHomePlaylists();
+  } catch (e) {
+    console.warn('[SpotifyPlaylists]', e);
+    try {
+      var saved = await spotifyHomeSavedTracks(100);
+      userPlaylists = [spotifyLikedPlaylistObject(saved)];
+    } catch (fallbackErr) {
+      console.warn('[SpotifyPlaylistsFallback]', fallbackErr);
+      userPlaylists = [];
+    }
+  }
+
+  myPodcastCollections = [];
+  renderUserPlaylistsList({ animate: isPlaylistPanelVisibleForRender(), reset: true });
+  if (emptyHomeActive) renderHomeDiscover();
+  scheduleShelfRebuild('spotify-refresh-user-playlists', true);
 }
 var playlistPanelDetailState = { key: '', loading: false, playlist: null, tracks: [], token: 0, renderLimit: PLAYLIST_DETAIL_INITIAL_RENDER };
 function playlistPanelKey(provider, id) {
-  return (provider === 'qq' ? 'qq' : 'netease') + ':' + String(id || '');
+  return 'spotify:' + String(id || '');
 }
 function playlistPanelProviderId(provider, id) {
-  return provider === 'qq' ? ('qq:' + id) : id;
+  return 'spotify:' + id;
 }
 function playlistPanelDetailHtml(pl, provider) {
+  provider = 'spotify';
   var key = playlistPanelKey(provider, pl && pl.id);
   if (playlistPanelDetailState.key !== key) return '';
   var tracks = playlistPanelDetailState.tracks || [];
   var loading = playlistPanelDetailState.loading;
-  var cover = pl && pl.cover ? (provider === 'qq' ? pl.cover : (pl.cover + '?param=96y96')) : '';
+  var cover = pl && pl.cover ? pl.cover : '';
   var img = cover ? '<img class="pl-detail-cover" src="' + escHtml(cover) + '" alt="" decoding="async" onerror="this.style.opacity=0.2">' : '<div class="pl-detail-cover"></div>';
-  var renderLimit = loading ? 0 : Math.max(PLAYLIST_DETAIL_INITIAL_RENDER, playlistPanelDetailState.renderLimit || PLAYLIST_DETAIL_INITIAL_RENDER);
-  renderLimit = Math.min(tracks.length, renderLimit);
-  var visibleTracks = loading ? [] : tracks.slice(0, renderLimit);
-  var rows = loading
-    ? '<div class="pl-detail-row"><div style="width:34px;height:34px;border-radius:7px;background:rgba(255,255,255,.06)"></div><div style="flex:1;min-width:0"><div class="pl-detail-row-title">正在载入歌单</div><div class="pl-detail-row-artist">请稍候</div></div></div>'
-    : visibleTracks.map(function(song, i){
-        var thumb = songCoverSrc(song, 60);
-        var imgTag = thumb ? '<img src="' + escHtml(thumb) + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=0.2">' : '<div style="width:34px;height:34px;border-radius:7px;background:rgba(255,255,255,.06);flex:0 0 auto"></div>';
-        return '<div class="pl-detail-row" data-pl-detail-row="' + i + '">' +
-          imgTag +
-          '<div style="flex:1;min-width:0"><div class="pl-detail-row-title">' + escHtml(song.name || '') + '</div>' +
-          '<button type="button" class="pl-detail-row-artist" data-pl-detail-artist="' + i + '">' + escHtml(song.artist || '未知歌手') + '</button></div>' +
-        '</div>';
-      }).join('');
-  if (!loading && !rows) rows = '<div style="text-align:center;padding:14px 0;color:rgba(255,255,255,.30);font-size:11.5px">歌单暂无可播放歌曲</div>';
-  if (!loading && tracks.length > renderLimit) {
-    rows += '<button type="button" class="fx-mini-btn ghost pl-detail-load-more" data-pl-detail-load-more="1">加载更多 ' + renderLimit + '/' + tracks.length + '</button>';
-  } else if (!loading && tracks.length > PLAYLIST_DETAIL_INITIAL_RENDER) {
-    rows += '<div class="pl-detail-progress">已显示全部 ' + tracks.length + ' 首</div>';
-  }
+  var rows = loading ? '<div class="pl-detail-progress">正在载入 Spotify 歌单...</div>' : tracks.slice(0, playlistPanelDetailState.renderLimit || PLAYLIST_DETAIL_INITIAL_RENDER).map(function(song, i){
+    var thumb = songCoverSrc(song, 48);
+    var imgTag = thumb ? '<img src="' + escHtml(thumb) + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=0.2">' : '<div style="width:34px;height:34px;border-radius:7px;background:rgba(255,255,255,.06);flex:0 0 auto"></div>';
+    return '<div class="pl-detail-row" data-pl-detail-row="' + i + '">' + imgTag + '<div style="flex:1;min-width:0"><div class="pl-detail-row-title">' + escHtml(song.name || '') + '</div><button class="pl-detail-row-artist" type="button" data-pl-detail-artist="' + i + '">' + escHtml(song.artist || 'Spotify') + '</button></div></div>';
+  }).join('');
+  var renderLimit = loading ? 0 : Math.min(tracks.length, playlistPanelDetailState.renderLimit || tracks.length);
+  if (!loading && tracks.length > renderLimit) rows += '<button type="button" class="fx-mini-btn ghost pl-detail-load-more" data-pl-detail-load-more="1">加载更多 ' + renderLimit + '/' + tracks.length + '</button>';
+  if (!loading && tracks.length && tracks.length <= renderLimit) rows += '<div class="pl-detail-progress">已显示全部 ' + tracks.length + ' 首</div>';
+  if (!loading && !tracks.length) rows = '<div class="pl-detail-progress">没有可播放歌曲</div>';
   return '<div class="pl-inline-detail" data-pl-detail="' + escHtml(key) + '">' +
     '<div class="pl-detail-sticky">' +
-      '<div class="pl-detail-head">' + img + '<div style="flex:1;min-width:0"><div class="pl-detail-title">' + escHtml(pl.name || '歌单详情') + '</div><div class="pl-detail-sub">' + escHtml((pl.trackCount || tracks.length || 0) + ' 首 · ' + (pl.creator || (provider === 'qq' ? 'QQ 音乐' : '网易云音乐'))) + '</div></div><div class="pl-detail-count">' + (loading ? '载入中' : (renderLimit + '/' + tracks.length)) + '</div></div>' +
+      '<div class="pl-detail-head">' + img + '<div style="flex:1;min-width:0"><div class="pl-detail-title">' + escHtml(pl.name || 'Spotify 歌单') + '</div><div class="pl-detail-sub">' + escHtml((pl.trackCount || tracks.length || 0) + ' 首 · Spotify') + '</div></div><div class="pl-detail-count">' + (loading ? '载入中' : (renderLimit + '/' + tracks.length)) + '</div></div>' +
       '<div class="pl-detail-actions"><button class="pl-detail-play" type="button" data-pl-detail-play="' + escHtml(key) + '"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>播放歌单</button><button class="fx-mini-btn ghost pl-detail-top-btn" type="button" data-pl-detail-top="1">回到顶部</button></div>' +
     '</div>' +
     '<div class="pl-detail-list">' + rows + '</div>' +
@@ -19513,9 +19645,9 @@ function scrollPlaylistPanelDetailIntoView(key) {
 }
 async function openPlaylistPanelDetail(provider, pid, title) {
   if (!pid) return;
-  provider = provider === 'qq' ? 'qq' : 'netease';
+  provider = 'spotify';
   var key = playlistPanelKey(provider, pid);
-  var pl = userPlaylists.find(function(item){ return playlistPanelKey(item.provider === 'qq' ? 'qq' : 'netease', item.id) === key; }) || { id: pid, provider: provider, name: title || '歌单详情' };
+  var pl = userPlaylists.find(function(item){ return playlistPanelKey('spotify', item.id) === key; }) || { id: pid, provider: provider, name: title || 'Spotify 歌单' };
   if (playlistPanelDetailState.key === key && !playlistPanelDetailState.loading && playlistPanelDetailState.tracks.length) {
     playlistPanelDetailState.key = '';
     playlistPanelDetailState.tracks = [];
@@ -19529,31 +19661,27 @@ async function openPlaylistPanelDetail(provider, pid, title) {
   renderPlaylistPanelDetailState();
   scrollPlaylistPanelDetailIntoView(key);
   try {
-    var r = provider === 'qq'
-      ? await apiJson('/api/qq/playlist/tracks?id=' + encodeURIComponent(pid))
-      : await apiJson('/api/playlist/tracks?id=' + encodeURIComponent(pid));
+    var tracks = await spotifyPlaylistTracks(pid);
     if (playlistPanelDetailState.token !== token) return;
     playlistPanelDetailState.loading = false;
-    playlistPanelDetailState.tracks = (r && r.tracks || []).map(cloneSong);
+    playlistPanelDetailState.tracks = tracks.map(cloneSong);
     playlistPanelDetailState.renderLimit = Math.min(playlistPanelDetailState.tracks.length, PLAYLIST_DETAIL_INITIAL_RENDER);
     renderPlaylistPanelDetailState();
   } catch (e) {
-    console.warn('[PlaylistPanelDetail]', pid, e);
+    console.warn('[SpotifyPlaylistPanelDetail]', pid, e);
     if (playlistPanelDetailState.token !== token) return;
     playlistPanelDetailState.loading = false;
     playlistPanelDetailState.tracks = [];
     playlistPanelDetailState.renderLimit = PLAYLIST_DETAIL_INITIAL_RENDER;
     renderPlaylistPanelDetailState();
-    showToast('歌单详情加载失败');
+    showToast('Spotify 歌单详情加载失败：请确认已更新 spotify-provider.js');
   }
 }
 function playPlaylistPanelDetail() {
   var st = playlistPanelDetailState;
   if (!st || !st.key) return;
-  var parts = st.key.split(':');
-  var provider = parts[0] === 'qq' ? 'qq' : 'netease';
-  var pid = parts.slice(1).join(':');
-  loadPlaylistIntoQueueById(playlistPanelProviderId(provider, pid), true, st.playlist && st.playlist.name || '');
+  var pid = String(st.key || '').replace(/^spotify:/, '');
+  loadPlaylistIntoQueueById(pid, true, st.playlist && st.playlist.name || '');
 }
 function playPlaylistPanelDetailTrack(index) {
   var tracks = playlistPanelDetailState.tracks || [];
@@ -19616,68 +19744,34 @@ function renderUserPlaylistsList(opts) {
   opts = opts || {};
   var $pl = document.getElementById('pl-list');
   var seq = ++playlistRenderSeq;
+  if (!$pl) return;
   if (!userPlaylists.length) {
-    $pl.innerHTML = '<div style="text-align:center;padding:24px 0;color:rgba(255,255,255,.32);font-size:11.5px">未找到歌单</div>';
+    $pl.innerHTML = '<div style="text-align:center;padding:24px 0;color:rgba(255,255,255,.32);font-size:11.5px">未找到 Spotify 歌单</div>';
     return;
   }
   function playlistCardHtml(pl) {
-    var provider = pl.provider === 'qq' ? 'qq' : 'netease';
-    var providerLabel = provider === 'qq' ? 'QQ' : 'NE';
-    var thumb = pl.cover ? (provider === 'qq' ? pl.cover : (pl.cover + '?param=88y88')) : '';
-    var imgTag = thumb ? '<img src="' + thumb + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=0.2">' : '<div style="width:44px;height:44px;border-radius:8px;background:rgba(255,255,255,.06);flex-shrink:0"></div>';
+    var provider = 'spotify';
+    var thumb = pl.cover || '';
+    var imgTag = thumb ? '<img src="' + escHtml(thumb) + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=0.2">' : '<div style="width:44px;height:44px;border-radius:8px;background:rgba(255,255,255,.06);flex-shrink:0"></div>';
     var key = playlistPanelKey(provider, pl.id);
     var expanded = playlistPanelDetailState.key === key ? ' expanded' : '';
-    return '<div class="pl-card' + expanded + '" data-playlist-provider="' + provider + '" data-playlist-id="' + escHtml(String(pl.id || '')) + '" data-playlist-title="' + escHtml(pl.name || '') + '">' +
+    return '<div class="pl-card' + expanded + '" data-playlist-provider="spotify" data-playlist-id="' + escHtml(String(pl.id || '')) + '" data-playlist-title="' + escHtml(pl.name || '') + '">' +
       imgTag +
-      '<div style="flex:1;min-width:0"><div class="pl-name">' + escHtml(pl.name) + '<span class="tag-source ' + provider + '" style="margin-left:6px;vertical-align:1px">' + providerLabel + '</span></div><div class="pl-sub">' + pl.trackCount + ' 首 · ' + escHtml(pl.creator || '') + '</div></div>' +
+      '<div style="flex:1;min-width:0"><div class="pl-name">' + escHtml(pl.name || 'Spotify 歌单') + '<span class="tag-source spotify" style="margin-left:6px;vertical-align:1px">SP</span></div><div class="pl-sub">' + (pl.trackCount || 0) + ' 首 · ' + escHtml(pl.creator || pl.owner || 'Spotify') + '</div></div>' +
     '</div>' + playlistPanelDetailHtml(pl, provider);
   }
-  var groups = [
-    { key:'netease', label:'网易云歌单', items:userPlaylists.filter(function(pl){ return pl.provider !== 'qq'; }) },
-    { key:'qq', label:'QQ 音乐歌单', items:userPlaylists.filter(function(pl){ return pl.provider === 'qq'; }) }
-  ];
   if (opts.reset) resetPlaylistPanelRenderLimit();
   playlistPanelRenderLimit = Math.max(PLAYLIST_PANEL_BATCH_SIZE, Math.min(userPlaylists.length, playlistPanelRenderLimit || PLAYLIST_PANEL_BATCH_SIZE));
-  var renderedCount = 0;
-  function visibleGroupItems(items) {
-    var room = playlistPanelRenderLimit - renderedCount;
-    if (room <= 0) return [];
-    var visible = items.slice(0, room);
-    renderedCount += visible.length;
-    return visible;
-  }
-  $pl.innerHTML = groups.map(function(group){
-    var items = visibleGroupItems(group.items);
-    if (!items.length) return '';
-    return '<div class="pl-section-label">' + group.label + '</div>' + items.map(playlistCardHtml).join('');
-  }).join('') || '<div style="text-align:center;padding:24px 0;color:rgba(255,255,255,.32);font-size:11.5px">未找到歌单</div>';
-  if (userPlaylists.length > renderedCount) {
-    $pl.insertAdjacentHTML('beforeend', '<button type="button" class="fx-mini-btn ghost pl-load-more" data-pl-load-more="1">加载更多 ' + renderedCount + '/' + userPlaylists.length + '</button>');
+  var visible = userPlaylists.slice(0, playlistPanelRenderLimit);
+  $pl.innerHTML = '<div class="pl-section-label">Spotify 歌单</div>' + visible.map(playlistCardHtml).join('');
+  if (userPlaylists.length > visible.length) {
+    $pl.insertAdjacentHTML('beforeend', '<button type="button" class="fx-mini-btn ghost pl-load-more" data-pl-load-more="1">加载更多 ' + visible.length + '/' + userPlaylists.length + '</button>');
   }
   if (opts.animate && seq === playlistRenderSeq) animateVisiblePanelList($pl, '.pl-card', document.getElementById('playlist-panel'));
 }
 function renderMyPodcastCollections(opts) {
-  opts = opts || {};
   var $pod = document.getElementById('podcast-list');
-  if (!$pod) return;
-  if (!loginStatus.loggedIn) {
-    $pod.innerHTML = '<div style="text-align:center;padding:14px 0;color:rgba(255,255,255,.28);font-size:11.5px">登录后显示我的播客</div>';
-    return;
-  }
-  var items = myPodcastCollections || [];
-  if (!items.length) {
-    $pod.innerHTML = '<div style="text-align:center;padding:14px 0;color:rgba(255,255,255,.28);font-size:11.5px">暂无播客数据</div>';
-    return;
-  }
-  $pod.innerHTML = items.map(function(pc){
-    var thumb = pc.cover ? coverUrlWithSize(pc.cover, 88) : '';
-    var imgTag = thumb ? '<img src="' + thumb + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=0.2">' : '<div style="width:44px;height:44px;border-radius:8px;background:rgba(0,245,212,.07);flex-shrink:0"></div>';
-    return '<div class="pl-card podcast-card" data-podcast-key="' + escHtml(pc.key || '') + '" data-podcast-title="' + escHtml(pc.title || '') + '">' +
-      imgTag +
-      '<div style="flex:1;min-width:0"><div class="pl-name">' + escHtml(pc.title || '') + '</div><div class="pl-sub">' + (pc.count || 0) + ' 项 · ' + escHtml(pc.sub || '') + '</div></div>' +
-    '</div>';
-  }).join('');
-  if (opts.animate) animateVisiblePanelList($pod, '.pl-card', document.getElementById('playlist-panel'));
+  if ($pod) $pod.innerHTML = '';
 }
 document.getElementById('pl-list').addEventListener('click', function(e){
   var loadMore = e.target && e.target.closest ? e.target.closest('[data-pl-load-more]') : null;
@@ -19749,11 +19843,11 @@ function renderMyPodcastRadioItems(key, title, items) {
   var $pod = document.getElementById('podcast-list');
   if (!$pod) return;
   if (!items.length) {
-    $pod.innerHTML = '<div class="podcast-inline-head"><div class="pl-section-label">' + escHtml(title || '我的播客') + '</div><button class="fx-mini-btn ghost" data-podcast-back="1" style="height:24px;padding:0 9px;font-size:10.5px">返回</button></div>' +
+    $pod.innerHTML = '<div class="podcast-inline-head"><div class="pl-section-label">' + escHtml(title || '') + '</div><button class="fx-mini-btn ghost" data-podcast-back="1" style="height:24px;padding:0 9px;font-size:10.5px">返回</button></div>' +
       '<div style="text-align:center;padding:14px 0;color:rgba(255,255,255,.28);font-size:11.5px">暂无内容</div>';
     return;
   }
-  $pod.innerHTML = '<div class="podcast-inline-head"><div class="pl-section-label">' + escHtml(title || '我的播客') + '</div><button class="fx-mini-btn ghost" data-podcast-back="1" style="height:24px;padding:0 9px;font-size:10.5px">返回</button></div>' +
+  $pod.innerHTML = '<div class="podcast-inline-head"><div class="pl-section-label">' + escHtml(title || '') + '</div><button class="fx-mini-btn ghost" data-podcast-back="1" style="height:24px;padding:0 9px;font-size:10.5px">返回</button></div>' +
     items.map(function(r){
       var thumb = r.cover ? coverUrlWithSize(r.cover, 88) : '';
       var imgTag = thumb ? '<img src="' + thumb + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=0.2">' : '<div style="width:44px;height:44px;border-radius:8px;background:rgba(0,245,212,.07);flex-shrink:0"></div>';
@@ -19824,41 +19918,49 @@ async function loadPlaylistIntoQueueById(id, autoplay, title) {
   homeSuppressed = false;
   updateEmptyHomeVisibility();
   showLoading();
-  var qqPlaylistId = String(id || '').indexOf('qq:') === 0 ? String(id).slice(3) : '';
+
+  var sid = String(id || '').trim();
   var r = null;
+
   try {
-    r = qqPlaylistId
-      ? await apiJson('/api/qq/playlist/tracks?id=' + encodeURIComponent(qqPlaylistId))
-      : await apiJson('/api/playlist/tracks?id=' + encodeURIComponent(id));
+    if (sid === 'spotify:liked' || sid === 'liked' || /喜欢的音乐|liked/i.test(String(title || ''))) {
+      r = await apiJson('/api/spotify/library/tracks?limit=100');
+      r = { provider: 'spotify', tracks: (r.tracks || r.songs || []) };
+    } else {
+      sid = sid.replace(/^spotify:playlist:/, '').replace(/^spotify:/, '').replace(/^playlist:/, '');
+      r = await apiJson('/api/spotify/library/playlist-tracks?id=' + encodeURIComponent(sid));
+    }
   } catch (e) {
-    console.warn('[PlaylistLoadApi]', id, e);
-    showToast('歌单加载失败');
+    console.warn('[SpotifyPlaylistLoadApi]', id, e);
+    showToast('Spotify 歌单加载失败');
     hideLoading();
     return;
   }
+
   try {
-    if (r.error) { showToast('歌单加载失败: ' + r.error); return; }
+    if (r.error) { showToast('Spotify 歌单加载失败: ' + r.error); return; }
     if (!r.tracks || !r.tracks.length) { showToast('歌单为空'); return; }
+
     playQueue = r.tracks.map(cloneSong);
-    if (!qqPlaylistId && isLikedPlaylistContext(id, title, r.playlist)) markSongsLiked(playQueue, true);
-    if (!qqPlaylistId) syncLikeStatusForSongs(playQueue);
     currentIdx = 0;
-    safeRenderQueuePanel('playlist-load');
-    safeSwitchPlaylistTab('queue', 'playlist-load');
-    safeShelfRebuild('playlist-load', true);
+
+    safeRenderQueuePanel('spotify-playlist-load');
+    safeSwitchPlaylistTab('queue', 'spotify-playlist-load');
+    safeShelfRebuild('spotify-playlist-load', true);
     forcePlaybackControlsInteractive();
+
     if (autoplay) {
       try {
         await playQueueAt(0);
       } catch (playErr) {
-        console.warn('[PlaylistAutoplay]', id, playErr);
+        console.warn('[SpotifyPlaylistAutoplay]', id, playErr);
         showToast('歌单已载入，播放启动失败');
       }
     }
-    forcePlaybackControlsInteractive();
-    showToast('载入: ' + (title || ('歌单 ' + id)));
+
+    showToast('载入: ' + (title || 'Spotify 歌单'));
   } catch (e) {
-    console.warn('[PlaylistLoadState]', id, e);
+    console.warn('[SpotifyPlaylistLoadState]', id, e);
     forcePlaybackControlsInteractive();
     showToast('歌单已载入，界面刷新失败');
   } finally {
@@ -23263,7 +23365,7 @@ function hasPlatformLogin(provider) {
   return !!(st && st.loggedIn);
 }
 function hasAnyPlatformLogin() {
-  return hasPlatformLogin('netease') || hasPlatformLogin('qq');
+  return hasPlatformLogin('netease') || hasPlatformLogin('qq') || !!(spotifyHomeState && spotifyHomeState.loggedIn);
 }
 function firstLoggedProvider() {
   if (hasPlatformLogin(activeAccountProvider)) return activeAccountProvider;

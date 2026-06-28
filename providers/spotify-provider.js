@@ -236,7 +236,6 @@ function createSpotifyProvider(options) {
     };
   }
   async function handle(req, res, url) {
-    const device = await pickDevice();
     const pathname = url.pathname;
     if (pathname.indexOf('/api/spotify/') !== 0) return false;
     try {
@@ -266,9 +265,12 @@ function createSpotifyProvider(options) {
       } else if (pathname === '/api/spotify/library/playlists' && req.method === 'GET') {
         const payload = await api('/me/playlists?limit=50');
         sendJSON(res, { provider: 'spotify', playlists: (payload.items || []).map(mapPlaylist).filter(Boolean) });
+      } else if (pathname === '/api/spotify/library/playlist-tracks' && req.method === 'GET') { const id = String(url.searchParams.get('id') || '').replace(/^spotify:playlist:/, '').trim(); if (!id) { const error = new Error('缺少 Spotify 歌单 ID'); error.status = 400; throw error; } const payload = await api('/playlists/' + encodeURIComponent(id) + '/tracks?limit=100&market=from_token'); sendJSON(res, { provider: 'spotify', tracks: (payload.items || []).map(function (item) { return mapTrack(item && item.track); }).filter(Boolean), total: Number(payload.total) || 0 }); 
+      } else if (pathname === '/api/spotify/library/playlist-tracks' && req.method === 'GET') { const id = String(url.searchParams.get('id') || '').replace(/^spotify:playlist:/, '').replace(/^spotify:/, '').replace(/^playlist:/, '').trim(); if (!id) { const error = new Error('缺少 Spotify 歌单 ID'); error.status = 400; throw error; } const payload = await api('/playlists/' + encodeURIComponent(id) + '/tracks?limit=100&market=from_token'); sendJSON(res, { provider: 'spotify', tracks: (payload.items || []).map(function (item) { return mapTrack(item && item.track); }).filter(Boolean), total: Number(payload.total) || 0 }); 
       } else if (pathname === '/api/spotify/player' && req.method === 'GET') sendJSON(res, await playback());
       else if (pathname === '/api/spotify/player/play' && req.method === 'POST') {
         const body = await options.readBody(req);
+        const device = await pickDevice();
         const uris = Array.isArray(body.uris) ? body.uris.map(String).filter(function (uri) { return uri.indexOf('spotify:track:') === 0; }).slice(0, 50) : [];
         if (!uris.length) { const error = new Error('缺少 Spotify 播放内容'); error.status = 400; throw error; }
         await api('/me/player', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device_ids: [device.id], play: true }) });
