@@ -1841,6 +1841,35 @@ html.control-glass-svg-ok #visual-guide-btn:hover{
   .fx-slider{grid-template-columns:74px minmax(0,1fr) 40px 28px;gap:8px;padding:8px}
   .lyric-color-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
+
+/* Spotify-only cleanup: hide old NetEase / QQ UI */
+#login-modal,
+#user-modal,
+#user-btn,
+#search-mode-song,
+#search-mode-netease,
+#search-mode-qq,
+#search-mode-podcast,
+.netease-source,
+.qq-source,
+.tag-source.netease,
+.tag-source.qq,
+.netease,
+.qq {
+  display: none !important;
+  pointer-events: none !important;
+}
+.tag-source.spotify {
+  color: #d8fff6;
+  border-color: rgba(30, 215, 96, .35);
+  background: rgba(30, 215, 96, .10);
+}
+#visual-guide,
+#visual-guide-btn {
+  display: none !important;
+  pointer-events: none !important;
+}
+
 </style>
 </head>
 <body>
@@ -1908,11 +1937,7 @@ html.control-glass-svg-ok #visual-guide-btn:hover{
       <input id="search-input" type="text" placeholder="搜索歌曲、歌手..." autocomplete="off" spellcheck="false">
     </div>
     <div id="search-mode-tabs" class="search-mode-tabs" role="tablist" aria-label="Search mode">
-      <button id="search-mode-song" class="active" type="button" onclick="setSearchMode('song')" aria-selected="true">All</button>
-      <button id="search-mode-netease" type="button" onclick="setSearchMode('netease')" aria-selected="false">NE</button>
-      <button id="search-mode-qq" type="button" onclick="setSearchMode('qq')" aria-selected="false">QQ</button>
-      <button id="search-mode-spotify" type="button" onclick="setSearchMode('spotify')" aria-selected="false">SP</button>
-      <button id="search-mode-podcast" type="button" onclick="setSearchMode('podcast')" aria-selected="false">Podcast</button>
+      <button id="search-mode-spotify" class="active" type="button" onclick="setSearchMode('spotify')" aria-selected="true">SP</button>
     </div>
     <div id="search-results"></div>
   </div>
@@ -2728,6 +2753,7 @@ var CONTROLS_AUTO_HIDE_STORE_KEY = 'mineradio-controls-auto-hide-v1';
 var FREE_CAMERA_STORE_KEY = 'mineradio-free-camera-v1';
 var HOTKEY_SETTINGS_STORE_KEY = 'mineradio-hotkey-settings-v1';
 var VISUAL_GUIDE_SEEN_STORE_KEY = 'mineradio-visual-guide-seen-v2';
+try { localStorage.setItem(VISUAL_GUIDE_SEEN_STORE_KEY, '1'); } catch (e) {}
 var LOCAL_BEATMAP_STORE_KEY = 'mineradio-local-beatmaps-v1';
 var LOCAL_BEAT_PREF_STORE_KEY = 'mineradio-local-beatmap-prefs-v1';
 var LOCAL_BEAT_COMBOS = ['', 'downbeat', 'push', 'drop', 'rebound', 'accent'];
@@ -2778,11 +2804,6 @@ var activeRadioContext = null;
 var listenStatsState = loadListenStatsState();
 var listenSession = null;
 var appPerfMarks = [];
-
-try {
-  localStorage.setItem(VISUAL_GUIDE_SEEN_STORE_KEY, '1');
-} catch (e) {}
-
 function markAppPerf(name) {
   try {
     var value = performance.now();
@@ -16001,7 +16022,7 @@ function runHomeSearch(query, mode) {
   setHomeControlsLocked(false);
   updateEmptyHomeVisibility();
   if (mode) setSearchMode(mode);
-  else if (searchMode === 'podcast') setSearchMode('song');
+  else if (searchMode === 'podcast') setSearchMode('spotify');
   var q = String(query || '').trim();
   var area = document.getElementById('search-area');
   if (area) setPeek(area, true, 'search');
@@ -16126,7 +16147,7 @@ function openHomePodcast(index) {
   openPlaylistPanelTab('podcasts', true);
   var item = homeDiscoverState.podcasts[index];
   if (!item || !item.id) {
-    setSearchMode('podcast');
+    setSearchMode('spotify');
     loadPodcastHot();
     return;
   }
@@ -16328,7 +16349,7 @@ function handleHomeTileClick(index) {
   else if (item.kind === 'guide') openHomeProductGuide();
   else if (item.kind === 'playlist') openHomePlaylist(item.index);
   else if (item.kind === 'podcast') openHomePodcast(item.index);
-  else if (item.kind === 'podcastSearch') { setSearchMode('podcast'); loadPodcastHot(); }
+  else if (item.kind === 'podcastSearch') { setSearchMode('spotify'); loadPodcastHot(); }
   else if (item.kind === 'library') openHomeLibrary();
   else runHomeSearch(item.query || item.title || '');
 }
@@ -16599,20 +16620,7 @@ function openArtistDetailForSong(song) {
   }
 }
 function resolveArtistSongForDetail(song, artist) {
-  var provider = songProviderKey(song) === 'qq' ? 'qq' : 'netease';
-  var url = provider === 'qq'
-    ? '/api/qq/search?keywords=' + encodeURIComponent(artist) + '&limit=8'
-    : '/api/search?keywords=' + encodeURIComponent(artist) + '&limit=10';
-  return apiJson(url).then(function(r){
-    var songs = (r && r.songs) || [];
-    for (var i = 0; i < songs.length; i++) {
-      var candidate = songs[i];
-      if (!candidate) continue;
-      if (!artistNameMatches([artist], candidate.artist || '')) continue;
-      if (currentArtistId(candidate) || currentQQArtistMid(candidate)) return candidate;
-    }
-    return null;
-  });
+  return Promise.resolve(null);
 }
 function setCustomCoverForCurrent(dataUrl, opts) {
   if (!dataUrl) return;
@@ -17272,55 +17280,24 @@ function runSearchHistory(q) {
   $input.focus();
 }
 function updateSearchModeTabs() {
-  var songBtn = document.getElementById('search-mode-song');
-  var neteaseBtn = document.getElementById('search-mode-netease');
-  var qqBtn = document.getElementById('search-mode-qq');
+  searchMode = 'spotify';
   var spotifyBtn = document.getElementById('search-mode-spotify');
-  var podcastBtn = document.getElementById('search-mode-podcast');
-  if (songBtn) {
-    songBtn.classList.toggle('active', searchMode === 'song');
-    songBtn.setAttribute('aria-selected', searchMode === 'song' ? 'true' : 'false');
-  }
-  if (neteaseBtn) {
-    neteaseBtn.classList.toggle('active', searchMode === 'netease');
-    neteaseBtn.setAttribute('aria-selected', searchMode === 'netease' ? 'true' : 'false');
-  }
-  if (qqBtn) {
-    qqBtn.classList.toggle('active', searchMode === 'qq');
-    qqBtn.setAttribute('aria-selected', searchMode === 'qq' ? 'true' : 'false');
-  }
   if (spotifyBtn) {
-    spotifyBtn.classList.toggle('active', searchMode === 'spotify');
-    spotifyBtn.setAttribute('aria-selected', searchMode === 'spotify' ? 'true' : 'false');
+    spotifyBtn.classList.add('active');
+    spotifyBtn.setAttribute('aria-selected', 'true');
   }
-  if (podcastBtn) {
-    podcastBtn.classList.toggle('active', searchMode === 'podcast');
-    podcastBtn.setAttribute('aria-selected', searchMode === 'podcast' ? 'true' : 'false');
-  }
-  if ($input) {
-    $input.placeholder = searchMode === 'podcast'
-      ? '搜索播客、电台...'
-      : (searchMode === 'spotify' ? '搜索 Spotify...' : (searchMode === 'qq' ? '搜索 QQ 音乐...' : (searchMode === 'netease' ? '搜索网易云音乐...' : '搜索歌曲、歌手...')));
-  }
+  if ($input) $input.placeholder = '搜索 Spotify...';
   requestAnimationFrame(updateSearchPillGlassDisplacementMap);
 }
 function setSearchMode(mode) {
-  mode = (mode === 'podcast' || mode === 'netease' || mode === 'qq' || mode === 'spotify') ? mode : 'song';
-  if (searchMode === mode) return;
-  searchMode = mode;
+  searchMode = 'spotify';
   updateSearchModeTabs();
   clearSearchResults();
   var searchArea = document.getElementById('search-area');
   if (searchArea) setPeek(searchArea, true, 'search');
   var q = $input ? $input.value.trim() : '';
-  if (searchMode === 'podcast') {
-    if (q) doSearch(q);
-    else loadPodcastHot();
-  } else if (q) {
-    doSearch(q);
-  } else {
-    renderSearchHistory();
-  }
+  if (q) doSearch(q);
+  else renderSearchHistory();
 }
 function podcastMetaText(item) {
   item = item || {};
@@ -17519,32 +17496,25 @@ document.addEventListener('click', function(e){
 updateSearchModeTabs();
 
 function songProviderKey(song) {
-  if (song && (song.provider === 'spotify' || song.source === 'spotify' || song.type === 'spotify')) return 'spotify';
-  if (song && (song.provider === 'qq' || song.source === 'qq' || song.type === 'qq')) return 'qq';
-  return 'netease';
+  return 'spotify';
 }
 function songSourceTagHtml(song) {
-  var key = songProviderKey(song);
-  var label = key === 'spotify' ? 'SP' : (key === 'qq' ? 'QQ' : 'NE');
-  return '<span class="tag-source ' + key + '">' + label + '</span>';
+  return '<span class="tag-source spotify">SP</span>';
 }
 function searchResultMetaText(song) {
   var bits = [];
-  if (song.artist) bits.push(song.artist);
-  if (song.album) bits.push(song.album);
-  if (songProviderKey(song) === 'qq' && !song.playable) bits.push('QQ 播放需会话/授权');
-  return bits.join('  ·  ') || songSourceLabel(song);
+  if (song && song.artist) bits.push(song.artist);
+  if (song && song.album) bits.push(song.album);
+  return bits.join('  ·  ') || 'Spotify';
 }
 function searchResultMetaHtml(song, index) {
   song = song || {};
   var artist = String(song.artist || '').trim();
   var bits = [];
   if (song.album) bits.push(song.album);
-  if (songProviderKey(song) === 'qq' && !song.playable) bits.push('QQ 播放需会话/授权');
   var tail = bits.length ? (' · ' + escHtml(bits.join('  ·  '))) : '';
   if (!artist) return escHtml(searchResultMetaText(song));
-  if (songProviderKey(song) === 'spotify') return escHtml(artist) + tail + ' · Spotify Connect';
-  return '<button class="search-artist-link" type="button" onclick="event.stopPropagation();openSearchResultArtist(' + index + ')">' + escHtml(artist) + '</button>' + tail;
+  return escHtml(artist) + tail + ' · Spotify Connect';
 }
 function openSearchResultArtist(index) {
   var song = playlist && playlist[index];
@@ -17661,39 +17631,10 @@ function mergeSongSearchResults(neteaseSongs, qqSongs, limit, q) {
   return out.slice(0, limit);
 }
 async function fetchMusicSearchResults(q, mode) {
-  if (mode === 'spotify') {
-    if (!window.SpotifyIntegration || typeof window.SpotifyIntegration.search !== 'function') {
-      throw new Error('Spotify integration is not loaded');
-    }
-    return await window.SpotifyIntegration.search(q);
+  if (!window.SpotifyIntegration || typeof window.SpotifyIntegration.search !== 'function') {
+    throw new Error('Spotify integration is not loaded');
   }
-
-  if (mode === 'qq') {
-    var qqOnly = await apiJson('/api/qq/search?keywords=' + encodeURIComponent(q) + '&limit=12');
-    return mergeSongSearchResults([], qqOnly.songs || [], 18, q);
-  }
-
-  if (mode === 'netease') {
-    var neOnly = await apiJson('/api/search?keywords=' + encodeURIComponent(q) + '&limit=18');
-    return mergeSongSearchResults(neOnly.songs || [], [], 18, q);
-  }
-
-  var result = await Promise.allSettled([
-    apiJson('/api/search?keywords=' + encodeURIComponent(q) + '&limit=14'),
-    apiJson('/api/qq/search?keywords=' + encodeURIComponent(q) + '&limit=12'),
-    window.SpotifyIntegration && typeof window.SpotifyIntegration.search === 'function'
-      ? window.SpotifyIntegration.search(q)
-      : Promise.resolve([])
-  ]);
-
-  var neteaseSongs = result[0].status === 'fulfilled' ? ((result[0].value && result[0].value.songs) || []) : [];
-  var qqSongs = result[1].status === 'fulfilled' ? ((result[1].value && result[1].value.songs) || []) : [];
-  var spotifySongs = result[2].status === 'fulfilled' ? (result[2].value || []) : [];
-
-  if (result[1].status === 'rejected') console.warn('QQ search failed:', result[1].reason);
-  if (result[2].status === 'rejected') console.warn('Spotify search failed:', result[2].reason);
-
-  return mergeSongSearchResults(neteaseSongs.concat(spotifySongs), qqSongs, 18, q);
+  return await window.SpotifyIntegration.search(q);
 }
 function renderSongSearchResults(songs) {
   playlist = songs || [];
@@ -18272,21 +18213,9 @@ function isSameTitleArtist(source, candidate) {
   return a.some(function(name){ return b.indexOf(name) >= 0; });
 }
 function alternatePlaybackProvider(song) {
-  return songProviderKey(song) === 'qq' ? 'netease' : 'qq';
+  return 'spotify';
 }
 async function searchAlternatePlatformSong(song) {
-  var target = alternatePlaybackProvider(song);
-  var artist = artistNameParts(song)[0] || '';
-  var query = [song.name || song.title || '', song.artist || artist].filter(Boolean).join(' ').trim();
-  if (!query) return null;
-  var url = target === 'qq'
-    ? '/api/qq/search?keywords=' + encodeURIComponent(query) + '&limit=8'
-    : '/api/search?keywords=' + encodeURIComponent(query) + '&limit=12';
-  var data = await apiJson(url);
-  var list = data && (data.songs || data.result || []);
-  for (var i = 0; i < list.length; i++) {
-    if (isSameTitleArtist(song, list[i])) return cloneSong(list[i]);
-  }
   return null;
 }
 function markQueueItemPlaybackFailed(idx) {
@@ -24596,36 +24525,6 @@ function maybeRunStartupVisualGuide(source) {
 }
 function startVisualGuide(opts) {
   return;
-  opts = opts || {};
-  if (document.body.classList.contains('splash-active')) {
-    setTimeout(function(){ startVisualGuide(opts); }, 700);
-    return;
-  }
-  if (immersiveMode) setImmersiveMode(false);
-  closeMiniQueue();
-  closeUploadTip(false);
-  visualGuideActive = true;
-  document.body.classList.add('visual-guide-active');
-  visualGuideStep = 0;
-  visualGuideState = {
-    bottomWasVisible: !!(document.getElementById('bottom-bar') && document.getElementById('bottom-bar').classList.contains('visible')),
-    searchWasPeek: !!(document.getElementById('search-area') && document.getElementById('search-area').classList.contains('peek')),
-    fxWasPeek: !!(document.getElementById('fx-panel') && document.getElementById('fx-panel').classList.contains('peek')),
-    plWasPeek: !!(document.getElementById('playlist-panel') && document.getElementById('playlist-panel').classList.contains('peek')),
-    mode: diyPlayerMode ? 'diy' : 'simple',
-    manual: !!opts.manual
-  };
-  var guide = document.getElementById('visual-guide');
-  if (guide) {
-    guide.classList.add('show');
-    guide.setAttribute('aria-hidden', 'false');
-  }
-  if (!visualGuideResizeBound) {
-    visualGuideResizeBound = true;
-    window.addEventListener('resize', positionVisualGuideStep);
-    window.addEventListener('scroll', positionVisualGuideStep, true);
-  }
-  showVisualGuideStep(0);
 }
 function prepareVisualGuideStep(step) {
   var search = document.getElementById('search-area');
