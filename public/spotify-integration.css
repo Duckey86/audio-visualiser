@@ -1,0 +1,26 @@
+
+:root{--source-spotify:#1ed760}
+.tag-source.spotify{color:#dfffe9;border-color:rgba(30,215,96,.34);background:rgba(30,215,96,.09)}
+.search-result.spotify-source:hover{background:rgba(30,215,96,.055)}
+.login-platform-tabs button.spotify.active{background:rgba(30,215,96,.16);color:#dfffe9}
+#spotify-status-btn{position:relative;font-size:10px;font-weight:850;letter-spacing:.06em;color:rgba(255,255,255,.58)}
+#spotify-status-btn::after{content:'';position:absolute;right:7px;bottom:7px;width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.20);box-shadow:0 0 0 2px rgba(0,0,0,.62)}
+#spotify-status-btn.connected{color:#dfffe9;border-color:rgba(30,215,96,.34)!important;background:rgba(30,215,96,.075)!important}
+#spotify-status-btn.connected::after{background:#1ed760;box-shadow:0 0 12px rgba(30,215,96,.65),0 0 0 2px rgba(0,0,0,.62)}
+.spotify-dialog{width:min(520px,92vw)!important;max-width:520px!important;text-align:left!important;padding:30px!important}
+.spotify-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:22px}
+.spotify-brand{display:flex;align-items:center;gap:12px}.spotify-logo{display:grid;place-items:center;width:42px;height:42px;border-radius:50%;background:#1ed760;color:#06120a;font-size:13px;font-weight:900;letter-spacing:-.04em;box-shadow:0 0 34px rgba(30,215,96,.20)}
+.spotify-title{font-size:18px;font-weight:780;color:#fff}.spotify-subtitle{margin-top:4px;font-size:11px;color:rgba(255,255,255,.46);line-height:1.5}
+.spotify-close{width:32px;height:32px;border:0;border-radius:50%;background:rgba(255,255,255,.06);color:rgba(255,255,255,.55);font-size:20px;cursor:pointer}
+.spotify-section{padding:15px;border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.025);margin-top:12px}
+.spotify-label{display:block;margin-bottom:8px;font-size:10px;font-weight:760;letter-spacing:.08em;color:rgba(255,255,255,.48);text-transform:uppercase}
+.spotify-input-row{display:flex;gap:8px}.spotify-input{flex:1;min-width:0;height:40px;border:1px solid rgba(255,255,255,.10);border-radius:12px;background:rgba(0,0,0,.26);padding:0 12px;color:#fff;font:12px var(--font-mono);outline:none}.spotify-input:focus{border-color:rgba(30,215,96,.48);box-shadow:0 0 0 1px rgba(30,215,96,.12)}
+.spotify-btn{height:40px;padding:0 16px;border:1px solid rgba(255,255,255,.11);border-radius:12px;background:rgba(255,255,255,.055);color:rgba(255,255,255,.82);font-family:inherit;font-size:11.5px;font-weight:720;cursor:pointer}.spotify-btn:hover{background:rgba(255,255,255,.09);color:#fff}.spotify-btn.primary{border-color:rgba(30,215,96,.38);background:rgba(30,215,96,.16);color:#e8fff0}.spotify-btn.danger{color:#ffb4bb}
+.spotify-redirect{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;padding:10px 11px;border-radius:11px;background:rgba(0,0,0,.18);font:10px var(--font-mono);color:rgba(255,255,255,.55);word-break:break-all}
+.spotify-note{margin-top:10px;font-size:10.5px;line-height:1.58;color:rgba(255,255,255,.40)}
+.spotify-status{display:flex;align-items:center;gap:9px;font-size:12px;color:rgba(255,255,255,.68)}.spotify-status-dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.20)}.spotify-status.connected .spotify-status-dot{background:#1ed760;box-shadow:0 0 16px rgba(30,215,96,.56)}
+.spotify-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;flex-wrap:wrap}
+body.spotify-source-active::before{content:'SPOTIFY CONNECT · AMBIENT';position:fixed;z-index:7;left:24px;top:24px;padding:6px 9px;border-radius:999px;border:1px solid rgba(30,215,96,.20);background:rgba(4,12,7,.42);color:rgba(215,255,229,.54);font:8.5px var(--font-mono);letter-spacing:.12em;pointer-events:none;backdrop-filter:blur(12px)}
+body.desktop-shell.spotify-source-active::before{top:58px}
+
+body.spotify-source-active #heart-btn,body.spotify-source-active #collect-btn,body.spotify-source-active #quality-control{display:none!important}
