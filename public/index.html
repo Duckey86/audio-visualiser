@@ -2693,7 +2693,7 @@ var lastStrongDrop = 0;           // 用于 burst 预设的强 drop 时刻
 
 var lyricsLines = [], lyricsVisible = false, lyricsHasNativeKaraoke = false, lyricsTimingSource = 'none';
 var playlist = [], playQueue = [], currentIdx = -1, playing = false, playToggleBusy = false;
-var searchMode = 'song', podcastResults = [], podcastPrograms = [], podcastCurrentRadio = null;
+var searchMode = 'spotify', podcastResults = [], podcastPrograms = [], podcastCurrentRadio = null;
 var loginStatus = { loggedIn: false, vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, vipLabel: '无VIP' };
 var qqLoginStatus = { provider: 'qq', loggedIn: false, preview: false, nickname: 'QQ 音乐', userId: '', avatar: '', vipType: 0 };
 var qqLoginAutoRefreshTimer = null;
@@ -17657,25 +17657,38 @@ function mergeSongSearchResults(neteaseSongs, qqSongs, limit, q) {
 }
 async function fetchMusicSearchResults(q, mode) {
   if (mode === 'spotify') {
-    if (!window.SpotifyIntegration) throw new Error('Spotify 模块未加载');
-    return window.SpotifyIntegration.search(q);
+    if (!window.SpotifyIntegration || typeof window.SpotifyIntegration.search !== 'function') {
+      throw new Error('Spotify integration is not loaded');
+    }
+    return await window.SpotifyIntegration.search(q);
   }
+
   if (mode === 'qq') {
     var qqOnly = await apiJson('/api/qq/search?keywords=' + encodeURIComponent(q) + '&limit=12');
     return mergeSongSearchResults([], qqOnly.songs || [], 18, q);
   }
+
   if (mode === 'netease') {
     var neOnly = await apiJson('/api/search?keywords=' + encodeURIComponent(q) + '&limit=18');
     return mergeSongSearchResults(neOnly.songs || [], [], 18, q);
   }
+
   var result = await Promise.allSettled([
     apiJson('/api/search?keywords=' + encodeURIComponent(q) + '&limit=14'),
-    apiJson('/api/qq/search?keywords=' + encodeURIComponent(q) + '&limit=12')
+    apiJson('/api/qq/search?keywords=' + encodeURIComponent(q) + '&limit=12'),
+    window.SpotifyIntegration && typeof window.SpotifyIntegration.search === 'function'
+      ? window.SpotifyIntegration.search(q)
+      : Promise.resolve([])
   ]);
+
   var neteaseSongs = result[0].status === 'fulfilled' ? ((result[0].value && result[0].value.songs) || []) : [];
   var qqSongs = result[1].status === 'fulfilled' ? ((result[1].value && result[1].value.songs) || []) : [];
+  var spotifySongs = result[2].status === 'fulfilled' ? (result[2].value || []) : [];
+
   if (result[1].status === 'rejected') console.warn('QQ search failed:', result[1].reason);
-  return mergeSongSearchResults(neteaseSongs, qqSongs, 18, q);
+  if (result[2].status === 'rejected') console.warn('Spotify search failed:', result[2].reason);
+
+  return mergeSongSearchResults(neteaseSongs.concat(spotifySongs), qqSongs, 18, q);
 }
 function renderSongSearchResults(songs) {
   playlist = songs || [];
@@ -17736,7 +17749,13 @@ async function doSearch(q, opts) {
     rememberSearchQuery(q);
     renderSongSearchResults(songs);
     if (opts.autoPlayFirst) playSearchResult(0);
-  } catch (err) { console.error('Search:', err); }
+  } catch (err) {
+    console.error('Search:', err);
+    if ($results) {
+      $results.innerHTML = '<div class="search-empty">搜索失败：' + escapeHtml(err.message || String(err)) + '</div>';
+      $results.classList.add('show');
+    }
+    if (typeof showToast === 'function') showToast('搜索失败：' + (err.message || String(err)));}
 }
 
 // ============================================================

@@ -212,7 +212,7 @@
       showSetup();
       throw new Error(status.configured ? '请先完成 Spotify 授权' : '请先配置 Spotify Client ID');
     }
-    var data = await request('/api/spotify/search?keywords=' + encodeURIComponent(query) + '&limit=18');
+    var data = await request('/api/spotify/search?keywords=' + encodeURIComponent(query) + '&limit=5');
     return data.songs || [];
   }
 

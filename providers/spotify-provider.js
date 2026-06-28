@@ -78,7 +78,7 @@ function createSpotifyProvider(options) {
   let auth = { clientId: '', accessToken: '', refreshToken: '', expiresAt: 0, scope: '' };
   let pending = null;
 
-  try { auth = Object.assign(auth, JSON.parse(fs.readFileSync(authFile, 'utf8'))); } catch (_) {}
+  try { auth = Object.assign(auth, JSON.parse(fs.readFileSync(authFile, 'utf8'))); } catch (_) { }
   if (!auth.clientId && process.env.SPOTIFY_CLIENT_ID) auth.clientId = String(process.env.SPOTIFY_CLIENT_ID).trim();
 
   function redirectUri() { return 'http://127.0.0.1:' + port + '/api/spotify/callback'; }
@@ -92,7 +92,7 @@ function createSpotifyProvider(options) {
       configured: !!id,
       clientIdMasked: id ? id.slice(0, 5) + '••••••' + id.slice(-4) : '',
       redirectUri: redirectUri(),
-      dashboardRedirectUri: 'http://127.0.0.1/api/spotify/callback',
+      dashboardRedirectUri: redirectUri(),
       policyMode: 'connect-companion',
     };
   }
@@ -206,6 +206,22 @@ function createSpotifyProvider(options) {
     if (!code) throw new Error('Spotify 未返回授权码');
     await exchangeToken({ client_id: auth.clientId, grant_type: 'authorization_code', code: code, redirect_uri: redirectUri(), code_verifier: request.verifier });
   }
+  async function pickDevice() {
+    const payload = await api('/me/player/devices');
+    const devices = Array.isArray(payload.devices) ? payload.devices : [];
+    const usable = devices.filter(function (device) {
+      return device && device.id && !device.is_restricted;
+    });
+    if (!usable.length) {
+      const error = new Error('No active Spotify device. Open Spotify desktop/mobile and play any song once, then try again.');
+      error.status = 404;
+      error.code = 'NO_ACTIVE_DEVICE';
+      throw error;
+    }
+    return usable.find(function (device) {
+      return device.is_active;
+    }) || usable[0];
+  }
   async function playback() {
     const state = await api('/me/player?additional_types=track,episode');
     if (!state) return { active: false, isPlaying: false };
@@ -220,6 +236,7 @@ function createSpotifyProvider(options) {
     };
   }
   async function handle(req, res, url) {
+    const device = await pickDevice();
     const pathname = url.pathname;
     if (pathname.indexOf('/api/spotify/') !== 0) return false;
     try {
@@ -254,7 +271,9 @@ function createSpotifyProvider(options) {
         const body = await options.readBody(req);
         const uris = Array.isArray(body.uris) ? body.uris.map(String).filter(function (uri) { return uri.indexOf('spotify:track:') === 0; }).slice(0, 50) : [];
         if (!uris.length) { const error = new Error('缺少 Spotify 播放内容'); error.status = 400; throw error; }
-        await api('/me/player/play', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uris: uris, position_ms: Math.max(0, Number(body.positionMs) || 0) }) });
+        await api('/me/player', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device_ids: [device.id], play: true }) });
+        await api('/me/player/play?device_id=' + encodeURIComponent(device.id), {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uris: uris, position_ms: Math.max(0, Number(body.positionMs) || 0) }) });
         sendJSON(res, { ok: true });
       } else if (pathname === '/api/spotify/player/pause' && req.method === 'POST') { await api('/me/player/pause', { method: 'PUT' }); sendJSON(res, { ok: true }); }
       else if (pathname === '/api/spotify/player/resume' && req.method === 'POST') { await api('/me/player/play', { method: 'PUT' }); sendJSON(res, { ok: true }); }
