@@ -19679,6 +19679,10 @@ void main(){
 
     function beatMapSongKey(song) {
       if (!song) return '';
+
+      // Do not build NE/QQ beatmap keys for Spotify songs.
+      if (songProviderKey(song) === 'spotify') return '';
+
       if (song.type === 'local' && song.localKey) return 'local:' + song.localKey;
       if (songProviderKey(song) === 'qq') return 'qq:' + (song.mid || song.songmid || song.id || (song.name + '|' + song.artist));
       if (song.id != null && song.id !== '') return 'song:' + song.id;
@@ -19759,6 +19763,10 @@ void main(){
 
     function isBeatPrefetchCandidate(song) {
       if (!song || isPodcastSong(song) || song.type === 'local' || song.localUrl) return false;
+
+      // Spotify audio is controlled by Spotify Connect, not the HTML audio analyser.
+      if (songProviderKey(song) === 'spotify') return false;
+
       return !!beatMapSongKey(song);
     }
 
@@ -19788,7 +19796,13 @@ void main(){
 
     async function fetchBeatPrefetchAudioUrl(song) {
       if (!song) return null;
-      var isQQ = songProviderKey(song) === 'qq';
+
+      var provider = songProviderKey(song);
+
+      // Spotify cannot be fetched as raw audio, so do not try NE/QQ analysis routes.
+      if (provider === 'spotify') return null;
+
+      var isQQ = provider === 'qq';
       var requestedQuality = normalizePlaybackQuality(playbackQuality);
       if (!isQQ && requestedQuality === 'jymaster' && !hasProviderSvip('netease', loginStatus)) requestedQuality = 'hires';
       if (isQQ && qqPlaybackQualityCeiling && (requestedQuality === 'jymaster' || requestedQuality === 'hires' || requestedQuality === 'lossless')) requestedQuality = qqPlaybackQualityCeiling;
