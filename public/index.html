@@ -2778,6 +2778,11 @@ var activeRadioContext = null;
 var listenStatsState = loadListenStatsState();
 var listenSession = null;
 var appPerfMarks = [];
+
+try {
+  localStorage.setItem(VISUAL_GUIDE_SEEN_STORE_KEY, '1');
+} catch (e) {}
+
 function markAppPerf(name) {
   try {
     var value = performance.now();
@@ -24590,6 +24595,7 @@ function maybeRunStartupVisualGuide(source) {
   return true;
 }
 function startVisualGuide(opts) {
+  return;
   opts = opts || {};
   if (document.body.classList.contains('splash-active')) {
     setTimeout(function(){ startVisualGuide(opts); }, 700);
