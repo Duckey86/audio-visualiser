@@ -15,6 +15,8 @@ const SCOPES = [
   'user-library-read',
   'playlist-read-private',
   'playlist-read-collaborative',
+  'user-read-recently-played',
+  'user-top-read'
 ].join(' ');
 
 function base64url(value) {
@@ -265,8 +267,7 @@ function createSpotifyProvider(options) {
       } else if (pathname === '/api/spotify/library/playlists' && req.method === 'GET') {
         const payload = await api('/me/playlists?limit=50');
         sendJSON(res, { provider: 'spotify', playlists: (payload.items || []).map(mapPlaylist).filter(Boolean) });
-      } else if (pathname === '/api/spotify/library/playlist-tracks' && req.method === 'GET') { const id = String(url.searchParams.get('id') || '').replace(/^spotify:playlist:/, '').trim(); if (!id) { const error = new Error('缺少 Spotify 歌单 ID'); error.status = 400; throw error; } const payload = await api('/playlists/' + encodeURIComponent(id) + '/tracks?limit=100&market=from_token'); sendJSON(res, { provider: 'spotify', tracks: (payload.items || []).map(function (item) { return mapTrack(item && item.track); }).filter(Boolean), total: Number(payload.total) || 0 }); 
-      } else if (pathname === '/api/spotify/library/playlist-tracks' && req.method === 'GET') { const id = String(url.searchParams.get('id') || '').replace(/^spotify:playlist:/, '').replace(/^spotify:/, '').replace(/^playlist:/, '').trim(); if (!id) { const error = new Error('缺少 Spotify 歌单 ID'); error.status = 400; throw error; } const payload = await api('/playlists/' + encodeURIComponent(id) + '/tracks?limit=100&market=from_token'); sendJSON(res, { provider: 'spotify', tracks: (payload.items || []).map(function (item) { return mapTrack(item && item.track); }).filter(Boolean), total: Number(payload.total) || 0 }); 
+      } else if (pathname === '/api/spotify/library/playlist-tracks' && req.method === 'GET') { let id = String(url.searchParams.get('id') || '').trim().replace(/^spotify:playlist:/, '').replace(/^spotify:/, '').replace(/^playlist:/, '').split('?')[0].trim(); if (!id) { const error = new Error('缺少 Spotify 歌单 ID'); error.status = 400; throw error; } let tracks = []; let rawItems = 0; let next = '/playlists/' + encodeURIComponent(id) + '/items?limit=100&market=from_token&additional_types=track'; while (next && tracks.length < 500) { const payload = await api(next); const items = payload.items || []; rawItems += items.length; tracks = tracks.concat(items.map(function (entry) { return mapTrack(entry && (entry.track || entry.item)); }).filter(Boolean)); next = payload.next ? payload.next.replace(/^https:\/\/api\.spotify\.com\/v1/, '') : ''; } sendJSON(res, { provider: 'spotify', tracks: tracks, songs: tracks, total: tracks.length, rawItems: rawItems, playlistId: id });
       } else if (pathname === '/api/spotify/player' && req.method === 'GET') sendJSON(res, await playback());
       else if (pathname === '/api/spotify/player/play' && req.method === 'POST') {
         const body = await options.readBody(req);
