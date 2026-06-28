@@ -10,6 +10,16 @@
     authTimer: 0,
   };
 
+  var spotifyUserPlaybackUnlocked = false;
+
+  function unlockSpotifyUserPlayback() {
+    spotifyUserPlaybackUnlocked = true;
+  }
+
+  document.addEventListener('pointerdown', unlockSpotifyUserPlayback, true);
+  document.addEventListener('keydown', unlockSpotifyUserPlayback, true);
+  document.addEventListener('touchstart', unlockSpotifyUserPlayback, true);
+
   function toast(message) {
     if (typeof window.showToast === 'function') window.showToast(message);
   }
@@ -68,7 +78,7 @@
         '<div class="spotify-section"><label class="spotify-label" for="spotify-client-id">Developer Client ID</label><div class="spotify-input-row"><input id="spotify-client-id" class="spotify-input" autocomplete="off" spellcheck="false" placeholder="粘贴 Spotify Client ID"><button id="spotify-save-config" class="spotify-btn" type="button">保存</button></div><div class="spotify-redirect"><span id="spotify-redirect-uri">正在读取回调地址…</span><button id="spotify-copy-redirect" class="spotify-btn" type="button">复制</button></div><div class="spotify-note">先在 Spotify Developer Dashboard 创建应用，把上面的地址加入 Redirect URIs。动态端口使用官方支持的 127.0.0.1 loopback 规则，不要填写 localhost。</div></div>' +
         '<div class="spotify-section"><div id="spotify-connection-status" class="spotify-status"><span class="spotify-status-dot"></span><span>尚未连接</span></div><div class="spotify-note" id="spotify-device-note">播放会发送到你当前活跃的 Spotify 设备；播放控制通常需要 Premium。</div></div>' +
         '<div class="spotify-actions"><button id="spotify-saved" class="spotify-btn" type="button">喜欢的音乐</button><button id="spotify-logout" class="spotify-btn danger" type="button">断开</button><button id="spotify-connect" class="spotify-btn primary" type="button">连接 Spotify</button></div>' +
-      '</div>';
+        '</div>';
       document.body.appendChild(modal);
       modal.addEventListener('click', function (event) { if (event.target === modal || event.target.closest('.spotify-close')) hideSetup(); });
       document.getElementById('spotify-save-config').addEventListener('click', saveConfig);
@@ -259,7 +269,12 @@
     state.pollTimer = 0;
   }
 
-  async function prepareTrack(song) {
+  async function prepareTrack(song, uris) {
+    if (!spotifyUserPlaybackUnlocked) {
+      console.warn('[Spotify] blocked automatic playback before user interaction:', song && song.name);
+      if (typeof window.hideLoading === 'function') window.hideLoading();
+      return false;
+    }
     state.currentSong = song;
     document.body.classList.add('spotify-source-active');
     state.playback = { active: true, isPlaying: true, progressMs: 0, durationMs: Number(song.durationMs || song.duration) || 0 };
@@ -267,7 +282,8 @@
     window.playing = true;
     if (typeof window.setPlayIcon === 'function') window.setPlayIcon(true);
     try {
-      await post('/api/spotify/player/play', { uris: [song.uri], positionMs: 0 });
+      uris = Array.isArray(uris) && uris.length ? uris : [song.uri];
+      await post('/api/spotify/player/play', { uris: uris, positionMs: 0 });
       if (typeof window.hideLoading === 'function') window.hideLoading();
       toast('已发送到 Spotify Connect · 使用环境视觉');
       startPolling();

@@ -27947,7 +27947,14 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
           var sourceProvider = songProviderKey(song);
           if (sourceProvider === 'spotify') {
             if (!window.SpotifyIntegration) throw new Error('Spotify 模块未加载');
-            await window.SpotifyIntegration.prepareTrack(song);
+
+            var spotifyUris = playQueue
+              .slice(idx)
+              .map(function (s) { return s && s.uri; })
+              .filter(function (uri) { return uri && uri.indexOf('spotify:track:') === 0; })
+              .slice(0, 50);
+
+            await window.SpotifyIntegration.prepareTrack(song, spotifyUris);
             recordSpotifyListenNow(song);
             return;
           }
@@ -29501,7 +29508,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
     progressBar.addEventListener('pointercancel', endProgressDrag);
     progressBar.addEventListener('lostpointercapture', function () { progressDragState.active = false; progressBar.classList.remove('is-dragging'); });
     setInterval(function () {
-      maybeAutoNextSpotify();
+      // maybeAutoNextSpotify();
       if (!audio) { updatePlaybackProgressUi(); return; }
       updateListenStatsTick(false);
       updatePlaybackProgressUi();

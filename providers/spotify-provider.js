@@ -267,16 +267,19 @@ function createSpotifyProvider(options) {
       } else if (pathname === '/api/spotify/library/playlists' && req.method === 'GET') {
         const payload = await api('/me/playlists?limit=50');
         sendJSON(res, { provider: 'spotify', playlists: (payload.items || []).map(mapPlaylist).filter(Boolean) });
-      } else if (pathname === '/api/spotify/library/playlist-tracks' && req.method === 'GET') { let id = String(url.searchParams.get('id') || '').trim().replace(/^spotify:playlist:/, '').replace(/^spotify:/, '').replace(/^playlist:/, '').split('?')[0].trim(); if (!id) { const error = new Error('缺少 Spotify 歌单 ID'); error.status = 400; throw error; } let tracks = []; let rawItems = 0; let next = '/playlists/' + encodeURIComponent(id) + '/items?limit=100&market=from_token&additional_types=track'; while (next && tracks.length < 500) { const payload = await api(next); const items = payload.items || []; rawItems += items.length; tracks = tracks.concat(items.map(function (entry) { return mapTrack(entry && (entry.track || entry.item)); }).filter(Boolean)); next = payload.next ? payload.next.replace(/^https:\/\/api\.spotify\.com\/v1/, '') : ''; } sendJSON(res, { provider: 'spotify', tracks: tracks, songs: tracks, total: tracks.length, rawItems: rawItems, playlistId: id });
+      } else if (pathname === '/api/spotify/library/playlist-tracks' && req.method === 'GET') {
+        let id = String(url.searchParams.get('id') || '').trim().replace(/^spotify:playlist:/, '').replace(/^spotify:/, '').replace(/^playlist:/, '').split('?')[0].trim(); if (!id) { const error = new Error('缺少 Spotify 歌单 ID'); error.status = 400; throw error; } let tracks = []; let rawItems = 0; let next = '/playlists/' + encodeURIComponent(id) + '/items?limit=100&market=from_token&additional_types=track'; while (next && tracks.length < 500) { const payload = await api(next); const items = payload.items || []; rawItems += items.length; tracks = tracks.concat(items.map(function (entry) { return mapTrack(entry && (entry.track || entry.item)); }).filter(Boolean)); next = payload.next ? payload.next.replace(/^https:\/\/api\.spotify\.com\/v1/, '') : ''; } sendJSON(res, { provider: 'spotify', tracks: tracks, songs: tracks, total: tracks.length, rawItems: rawItems, playlistId: id });
       } else if (pathname === '/api/spotify/player' && req.method === 'GET') sendJSON(res, await playback());
       else if (pathname === '/api/spotify/player/play' && req.method === 'POST') {
         const body = await options.readBody(req);
-        const device = await pickDevice();
-        const uris = Array.isArray(body.uris) ? body.uris.map(String).filter(function (uri) { return uri.indexOf('spotify:track:') === 0; }).slice(0, 50) : [];
+        const device = await pickDevice(); try { await api('/me/player/shuffle?state=false&device_id=' + encodeURIComponent(device.id), { method: 'PUT' }); } catch (_) { } try { await api('/me/player/repeat?state=off&device_id=' + encodeURIComponent(device.id), { method: 'PUT' }); } catch (_) { } const uris = Array.isArray(body.uris) ? body.uris.map(String).filter(function (uri) { return uri.indexOf('spotify:track:') === 0; }).slice(0, 50) : [];
         if (!uris.length) { const error = new Error('缺少 Spotify 播放内容'); error.status = 400; throw error; }
         await api('/me/player', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device_ids: [device.id], play: true }) });
+        try { await api('/me/player/shuffle?state=false&device_id=' + encodeURIComponent(device.id), { method: 'PUT' }); } catch (_) { }
+        try { await api('/me/player/repeat?state=off&device_id=' + encodeURIComponent(device.id), { method: 'PUT' }); } catch (_) { }
         await api('/me/player/play?device_id=' + encodeURIComponent(device.id), {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uris: uris, position_ms: Math.max(0, Number(body.positionMs) || 0) }) });
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uris: uris, position_ms: Math.max(0, Number(body.positionMs) || 0) })
+        });
         sendJSON(res, { ok: true });
       } else if (pathname === '/api/spotify/player/pause' && req.method === 'POST') { await api('/me/player/pause', { method: 'PUT' }); sendJSON(res, { ok: true }); }
       else if (pathname === '/api/spotify/player/resume' && req.method === 'POST') { await api('/me/player/play', { method: 'PUT' }); sendJSON(res, { ok: true }); }
