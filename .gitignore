@@ -26,6 +26,7 @@ backups/
 *.cache
 .env
 .env.*
+.librespot-cache/
 
 # Local development noise
 .DS_Store
