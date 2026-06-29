@@ -12095,6 +12095,92 @@
     var homeForcedOpen = false;
     var homeSuppressed = false;
     var homeDiscoverState = { loading: false, loaded: false, loggedIn: false, mode: 'starter', songs: [], playlists: [], podcasts: [], error: '', updatedAt: 0 };
+
+    var librespotVisualState = {
+      active: false,
+      timer: 0
+    };
+
+    async function startLibrespotVisualMode() {
+      await fetch('/api/librespot/start', { method: 'POST' });
+      librespotVisualState.active = true;
+
+      if (librespotVisualState.timer) clearInterval(librespotVisualState.timer);
+
+      librespotVisualState.timer = setInterval(async function () {
+        try {
+          var r = await fetch('/api/librespot/levels?t=' + Date.now(), { cache: 'no-store' });
+          var lv = await r.json();
+
+          if (!uniforms) return;
+
+          uniforms.uBass.value = Math.max(uniforms.uBass.value || 0, lv.bass || 0);
+          uniforms.uMid.value = Math.max(uniforms.uMid.value || 0, lv.mid || 0);
+          uniforms.uTreble.value = Math.max(uniforms.uTreble.value || 0, lv.treble || 0);
+          uniforms.uBeat.value = Math.max(uniforms.uBeat.value || 0, lv.beat || 0);
+        } catch (e) {
+          console.warn('[LibrespotLevels]', e);
+        }
+      }, 50);
+
+      showToast('Librespot visual mode started. Choose Mineradio Analyzer in Spotify.');
+    }
+
+    async function stopLibrespotVisualMode() {
+      await fetch('/api/librespot/stop', { method: 'POST' });
+      librespotVisualState.active = false;
+
+      if (librespotVisualState.timer) clearInterval(librespotVisualState.timer);
+      librespotVisualState.timer = 0;
+
+      showToast('Librespot visual mode stopped');
+    }
+
+    function addLibrespotVisualButton() {
+      if (document.getElementById('librespot-visual-btn')) return;
+
+      var btn = document.createElement('button');
+      btn.id = 'librespot-visual-btn';
+      btn.type = 'button';
+      btn.textContent = 'LIBRE';
+      btn.title = 'Start / stop Librespot visual mode';
+
+      btn.style.position = 'fixed';
+      btn.style.top = '72px';
+      btn.style.right = '24px';
+      btn.style.zIndex = '9999';
+      btn.style.height = '34px';
+      btn.style.padding = '0 14px';
+      btn.style.borderRadius = '999px';
+      btn.style.border = '1px solid rgba(30,215,96,.35)';
+      btn.style.background = 'rgba(0,0,0,.45)';
+      btn.style.color = '#d8fff6';
+      btn.style.fontWeight = '800';
+      btn.style.cursor = 'pointer';
+
+      btn.onclick = async function () {
+        if (!window.librespotVisualOn) {
+          window.librespotVisualOn = true;
+          btn.textContent = 'LIBRE ON';
+          await startLibrespotVisualMode();
+        } else {
+          window.librespotVisualOn = false;
+          btn.textContent = 'LIBRE';
+          await stopLibrespotVisualMode();
+        }
+      };
+
+      document.body.appendChild(btn);
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', addLibrespotVisualButton);
+    } else {
+      addLibrespotVisualButton();
+    }
+
+
+
     var spotifyHomeState = { loggedIn: false, checkedAt: 0, playlists: [], savedTracks: [] };
     async function spotifyHomeStatus(force) {
       var now = Date.now();
@@ -36396,6 +36482,167 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
     animate();
   </script>
   <script src="spotify-integration.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      var state = window.__librespotVisualState || (window.__librespotVisualState = {
+        active: false,
+        timer: 0
+      });
+
+      function libreToast(message) {
+        if (typeof window.showToast === 'function') window.showToast(message);
+        else console.log('[Librespot]', message);
+      }
+
+      function applyLibrespotLevels(levels) {
+        if (!levels || !window.uniforms) return;
+
+        window.uniforms.uBass.value = Math.max(window.uniforms.uBass.value || 0, levels.bass || 0);
+        window.uniforms.uMid.value = Math.max(window.uniforms.uMid.value || 0, levels.mid || 0);
+        window.uniforms.uTreble.value = Math.max(window.uniforms.uTreble.value || 0, levels.treble || 0);
+        window.uniforms.uBeat.value = Math.max(window.uniforms.uBeat.value || 0, levels.beat || 0);
+      }
+
+      async function pollLibrespotLevels() {
+        try {
+          var response = await fetch('/api/librespot/levels?t=' + Date.now(), { cache: 'no-store' });
+          var levels = await response.json().catch(function () { return {}; });
+          applyLibrespotLevels(levels);
+        } catch (error) {
+          console.warn('[LibrespotLevels]', error);
+        }
+      }
+
+      async function startLibrespotVisualMode() {
+        console.log('[LibreButton] start clicked');
+
+        var response = await fetch('/api/librespot/start', {
+          method: 'POST',
+          cache: 'no-store'
+        });
+
+        var data = await response.json().catch(function () { return {}; });
+        console.log('[LibreStart]', response.status, data);
+
+        if (!response.ok || data.error) {
+          libreToast('Librespot start failed: ' + (data.error || response.status));
+          return false;
+        }
+
+        state.active = true;
+
+        if (state.timer) clearInterval(state.timer);
+        state.timer = setInterval(pollLibrespotLevels, 50);
+        pollLibrespotLevels();
+
+        libreToast('Librespot visual mode started. Choose Mineradio Analyzer in Spotify.');
+        return true;
+      }
+
+      async function stopLibrespotVisualMode() {
+        console.log('[LibreButton] stop clicked');
+
+        try {
+          var response = await fetch('/api/librespot/stop', {
+            method: 'POST',
+            cache: 'no-store'
+          });
+          var data = await response.json().catch(function () { return {}; });
+          console.log('[LibreStop]', response.status, data);
+        } catch (error) {
+          console.warn('[LibreStop]', error);
+        }
+
+        state.active = false;
+
+        if (state.timer) clearInterval(state.timer);
+        state.timer = 0;
+
+        libreToast('Librespot visual mode stopped.');
+        return true;
+      }
+
+      window.startLibrespotVisualMode = startLibrespotVisualMode;
+      window.stopLibrespotVisualMode = stopLibrespotVisualMode;
+
+      function makeLibreButton(label, borderColor, color) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = label;
+        button.style.height = '34px';
+        button.style.padding = '0 14px';
+        button.style.borderRadius = '999px';
+        button.style.border = '1px solid ' + borderColor;
+        button.style.background = 'rgba(0,0,0,.55)';
+        button.style.color = color;
+        button.style.fontWeight = '800';
+        button.style.cursor = 'pointer';
+        button.style.fontFamily = 'inherit';
+        button.style.letterSpacing = '.04em';
+        return button;
+      }
+
+      function addLibrespotButtons() {
+        var oldSingle = document.getElementById('librespot-visual-btn');
+        if (oldSingle) oldSingle.remove();
+
+        var oldBox = document.getElementById('librespot-buttons');
+        if (oldBox) oldBox.remove();
+
+        var box = document.createElement('div');
+        box.id = 'librespot-visual-btn';
+        box.style.position = 'fixed';
+        box.style.top = '72px';
+        box.style.right = '24px';
+        box.style.zIndex = '99999';
+        box.style.display = 'flex';
+        box.style.gap = '8px';
+        box.style.pointerEvents = 'auto';
+
+        var start = makeLibreButton('Start Libre', 'rgba(30,215,96,.35)', '#d8fff6');
+        var stop = makeLibreButton('Stop Libre', 'rgba(255,90,90,.35)', '#ffd8d8');
+
+        start.addEventListener('click', async function () {
+          start.disabled = true;
+          start.textContent = 'Starting...';
+          try {
+            var ok = await startLibrespotVisualMode();
+            start.textContent = ok ? 'Libre ON' : 'Start Libre';
+          } catch (error) {
+            console.warn('[LibreButtonStart]', error);
+            libreToast('Librespot start failed: ' + (error && error.message || error));
+            start.textContent = 'Start Libre';
+          } finally {
+            start.disabled = false;
+          }
+        });
+
+        stop.addEventListener('click', async function () {
+          stop.disabled = true;
+          stop.textContent = 'Stopping...';
+          try {
+            await stopLibrespotVisualMode();
+          } finally {
+            stop.textContent = 'Stop Libre';
+            stop.disabled = false;
+            start.textContent = 'Start Libre';
+          }
+        });
+
+        box.appendChild(start);
+        box.appendChild(stop);
+        document.body.appendChild(box);
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', addLibrespotButtons);
+      } else {
+        addLibrespotButtons();
+      }
+    })();
+  </script>
 </body>
 
 </html>

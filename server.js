@@ -46,7 +46,7 @@ const {
 } = require('NeteaseCloudMusicApi');
 const http = require('http');
 const https = require('https');
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const tls = require('tls');
@@ -89,6 +89,8 @@ const WEATHER_DEFAULT_LOCATION = {
 
 const updateDownloadJobs = new Map();
 
+const librespotAnalyser = require('./providers/librespot-analyser');
+
 function applySystemCertificateAuthorities() {
   try {
     if (typeof tls.getCACertificates !== 'function' || typeof tls.setDefaultCACertificates !== 'function') return;
@@ -112,13 +114,13 @@ applySystemCertificateAuthorities();
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
-  '.js':   'application/javascript',
-  '.css':  'text/css',
+  '.js': 'application/javascript',
+  '.css': 'text/css',
   '.json': 'application/json',
-  '.png':  'image/png',
-  '.jpg':  'image/jpeg',
-  '.ico':  'image/x-icon',
-  '.svg':  'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.ico': 'image/x-icon',
+  '.svg': 'image/svg+xml',
 };
 
 // ---------- Cookie 持久化 ----------
@@ -177,7 +179,7 @@ try { if (fs.existsSync(COOKIE_FILE)) userCookie = fs.readFileSync(COOKIE_FILE, 
 catch (e) { userCookie = ''; }
 function saveCookie(c) {
   userCookie = normalizeCookieHeader(c) || rawCookieFallback(c);
-  try { fs.writeFileSync(COOKIE_FILE, userCookie); } catch (e) {}
+  try { fs.writeFileSync(COOKIE_FILE, userCookie); } catch (e) { }
 }
 
 let qqCookie = '';
@@ -185,7 +187,7 @@ try { if (fs.existsSync(QQ_COOKIE_FILE)) qqCookie = fs.readFileSync(QQ_COOKIE_FI
 catch (e) { qqCookie = ''; }
 function saveQQCookie(c) {
   qqCookie = normalizeCookieHeader(c) || rawCookieFallback(c);
-  try { fs.writeFileSync(QQ_COOKIE_FILE, qqCookie); } catch (e) {}
+  try { fs.writeFileSync(QQ_COOKIE_FILE, qqCookie); } catch (e) { }
 }
 
 // ---------- 工具 ----------
@@ -420,7 +422,7 @@ function updateAssetNameFromUrl(value) {
     const u = new URL(String(value || ''));
     const base = path.basename(decodeURIComponent(u.pathname || ''));
     if (base) return base;
-  } catch (_) {}
+  } catch (_) { }
   return path.basename(String(value || '').split('?')[0]) || '';
 }
 function normalizeManifestUpdateInfo(data) {
@@ -865,7 +867,7 @@ async function downloadUpdateAsset(job) {
       }
     } finally {
       writer.end();
-      await once(writer, 'finish').catch(() => {});
+      await once(writer, 'finish').catch(() => { });
     }
 
     if (fs.existsSync(job.filePath)) fs.unlinkSync(job.filePath);
@@ -875,7 +877,7 @@ async function downloadUpdateAsset(job) {
     job.message = '安装包已下载';
     job.updatedAt = Date.now();
   } catch (e) {
-    try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (_) {}
+    try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (_) { }
     job.status = 'error';
     job.error = e.message || 'UPDATE_DOWNLOAD_FAILED';
     job.updatedAt = Date.now();
@@ -1001,7 +1003,7 @@ async function downloadUpdateAssetWithMirrors(job) {
   for (let i = 0; i < candidates.length; i++) {
     const candidate = candidates[i];
     try {
-      try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (_) {}
+      try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (_) { }
       ensureMirrorCanBeVerified(job, candidate);
       prepareUpdateJobAttempt(job, candidate, i, candidates.length);
       job.message = job.total ? '正在下载完整安装包' : '正在下载完整安装包，等待服务器返回大小';
@@ -1046,7 +1048,7 @@ async function downloadUpdateAssetWithMirrors(job) {
         }
       } finally {
         writer.end();
-        await once(writer, 'finish').catch(() => {});
+        await once(writer, 'finish').catch(() => { });
       }
 
       verifyUpdateFile(tmpPath, job);
@@ -1059,7 +1061,7 @@ async function downloadUpdateAssetWithMirrors(job) {
       job.updatedAt = Date.now();
       return;
     } catch (err) {
-      try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (_) {}
+      try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (_) { }
       const info = classifyUpdateError(err);
       failures.push({ source: candidate.label || '下载线路', reason: info.reason, detail: info.detail });
       job.failedAttempts = failures.slice(-6);
@@ -1543,10 +1545,10 @@ function classifyQQPlaybackRestriction(info, session) {
 }
 const NETEASE_QUALITY_CANDIDATES = [
   { level: 'jymaster', br: 1999000, label: '超清母带', svip: true },
-  { level: 'hires',    br: 1999000, label: '高清臻音' },
+  { level: 'hires', br: 1999000, label: '高清臻音' },
   { level: 'lossless', br: 1411000, label: '无损' },
-  { level: 'exhigh',   br: 999000,  label: '极高' },
-  { level: 'standard', br: 128000,  label: '标准' },
+  { level: 'exhigh', br: 999000, label: '极高' },
+  { level: 'standard', br: 128000, label: '标准' },
 ];
 const QQ_QUALITY_CANDIDATE_TEMPLATES = [
   { prefix: 'RS01', ext: '.flac', level: 'hires', label: 'Hi-Res FLAC' },
@@ -2353,14 +2355,14 @@ function audioProxyHeadersFor(audioUrl, range) {
   try {
     const host = new URL(audioUrl).hostname.toLowerCase();
     if (host.includes('qq.com') || host.includes('qpic.cn')) headers.Referer = 'https://y.qq.com/';
-  } catch (e) {}
+  } catch (e) { }
   if (range) headers.Range = range;
   return headers;
 }
 
 function audioContentTypeForUrl(audioUrl, upstreamType) {
   let pathname = '';
-  try { pathname = new URL(audioUrl).pathname.toLowerCase(); } catch (e) {}
+  try { pathname = new URL(audioUrl).pathname.toLowerCase(); } catch (e) { }
   if (/\.flac$/.test(pathname)) return 'audio/flac';
   if (/\.mp3$/.test(pathname)) return 'audio/mpeg';
   if (/\.(m4a|mp4)$/.test(pathname)) return 'audio/mp4';
@@ -3253,6 +3255,21 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost:' + PORT);
   const pn = url.pathname;
 
+  if (pn === '/api/librespot/start' && req.method === 'POST') {
+    sendJSON(res, librespotAnalyser.startLibrespot());
+    return;
+  }
+
+  if (pn === '/api/librespot/stop' && req.method === 'POST') {
+    sendJSON(res, librespotAnalyser.stopLibrespot());
+    return;
+  }
+
+  if (pn === '/api/librespot/levels' && req.method === 'GET') {
+    sendJSON(res, librespotAnalyser.getLevels());
+    return;
+  }
+
   if (await spotifyProvider.handle(req, res, url)) return;
 
   if (pn === '/api/app/version') {
@@ -3426,7 +3443,7 @@ const server = http.createServer(async (req, res) => {
   // ---------- 搜索 ----------
   if (pn === '/api/search') {
     try {
-      const kw    = url.searchParams.get('keywords') || '';
+      const kw = url.searchParams.get('keywords') || '';
       const limit = parseInt(url.searchParams.get('limit') || '20');
       const songs = await handleSearch(kw, limit);
       sendJSON(res, { songs });
@@ -3783,7 +3800,7 @@ const server = http.createServer(async (req, res) => {
       let r = await login_qr_check({ key, noCookie: true, timestamp: Date.now() });
       let body = r.body || {};
       let code = Number(body.code || r.code);
-      let msg  = body.message || r.message || '';
+      let msg = body.message || r.message || '';
       let cookie = readCookieFromResponse(r);
       if (code === 803 && !cookie) {
         try {
@@ -3838,7 +3855,7 @@ const server = http.createServer(async (req, res) => {
 
   // ---------- 登出 ----------
   if (pn === '/api/logout') {
-    try { await logout({ cookie: userCookie }); } catch (e) {}
+    try { await logout({ cookie: userCookie }); } catch (e) { }
     saveCookie('');
     sendJSON(res, { ok: true });
     return;
@@ -4153,8 +4170,8 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const resp = await fetch(coverUrl, { headers: { 'User-Agent': UA, 'Referer': 'https://music.163.com/' } });
-      const ct  = resp.headers.get('content-type') || 'image/jpeg';
-      const cl  = resp.headers.get('content-length');
+      const ct = resp.headers.get('content-type') || 'image/jpeg';
+      const cl = resp.headers.get('content-length');
       const hdr = {
         'Content-Type': ct,
         'Access-Control-Allow-Origin': '*',
@@ -4184,7 +4201,7 @@ const server = http.createServer(async (req, res) => {
         'Accept-Ranges': 'bytes',
       };
       const cl = up.headers.get('content-length'); if (cl) out['Content-Length'] = cl;
-      const cr = up.headers.get('content-range');  if (cr) out['Content-Range']  = cr;
+      const cr = up.headers.get('content-range'); if (cr) out['Content-Range'] = cr;
       res.writeHead(up.status, out);
       const reader = up.body.getReader();
       while (true) { const c = await reader.read(); if (c.done) break; res.write(c.value); }
