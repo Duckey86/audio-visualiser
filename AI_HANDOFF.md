@@ -75,6 +75,17 @@
 
 ## 已完成工作日志
 
+### 2026-06-29
+
+- 读取用户提供的 ChatGPT 分享对话，确认正式方向为稳定的 Spotify Connect + 环境视觉；Librespot 仅属于实验方案，不进入主线。
+- 移除 `NeteaseCloudMusicApi` 及其传递依赖；`server.js` 不再 require 网易云模块，当前依赖树和 `dist/win-unpacked` 均不含该包。
+- Spotify Provider 新增喜欢歌曲分页、最近播放、常听歌曲/歌手；个人歌单只展示本人或协作歌单，避免 2026 Spotify API 对无权歌单返回 403。
+- Home 的我的歌单、每日推荐、推荐歌曲、继续听、听歌画像、更多歌曲和左侧喜欢的音乐全部改用 Spotify 数据；搜索只保留 Spotify，本地音乐导入继续可用。
+- 修复 Spotify 自然切歌后 Mineradio 封面/队列不同步、上下曲重建队列、播放歌单短暂跳回 Home、未连接时首页加载文案卡住等问题；Spotify 专辑粒子使用不跟随录音节拍的环境漂移。
+- 新增 `test/spotify-provider.test.js`，验证喜欢歌曲分页与无权歌单过滤；`npm test` 2/2 通过。
+- 已通过所有 Node 语法检查、`public/index.html` 内联脚本解析、`git diff --check`、真实本地浏览器 UI 回归和 `npm run build:win:dir`；生成的 `dist/win-unpacked/Mineradio.exe` 存在且不包含网易云依赖。
+- 本轮没有提交、推送或发布 GitHub Release。
+
 ### 2026-06-28
 
 - 从公开 GitHub 源码归档导入当前 v1.1.1 工作区，并实现 Spotify Connect Provider。
@@ -172,6 +183,8 @@
 - 注意：本机 `gh` 命令曾被失效代理 `HTTP_PROXY/HTTPS_PROXY=http://127.0.0.1:26001` 挡住。使用 GitHub CLI 发布时可在当前命令里临时清空 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY` 后再执行。
 
 ## 未完成/待确认事项
+
+- 尚未使用用户真实 Spotify Client ID/账号完成授权和 Premium Connect 实播；本地未授权状态、接口模拟测试和 Windows 打包已通过，下一步实机需按 `docs/SPOTIFY_SETUP.md` 配置账号后验证真实歌单/切歌。
 
 - `v1.1.0` 发布时不要上传 `latest.yml` 或快速补丁；Release 需要通过 `--latest=false` 或等价 API 避免成为旧版软件内更新通道的 latest。
 - 搜索结果排序仍需要继续优化：例如“日落大道”应优先梁博原唱，“Beauty and a Beat”应优先原唱/官方版本，避免翻唱排第一。

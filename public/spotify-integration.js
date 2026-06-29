@@ -7,6 +7,7 @@
     currentSong: null,
     playbackAt: 0,
     pollTimer: 0,
+    pollBusy: false,
     authTimer: 0,
   };
 
@@ -204,7 +205,7 @@
     var status = await refreshStatus(true);
     if (!status.loggedIn) { toast('请先连接 Spotify'); return; }
     try {
-      var data = await request('/api/spotify/library/tracks?t=' + Date.now());
+      var data = await request('/api/spotify/library/tracks?limit=100&t=' + Date.now());
       if (typeof window.setSearchMode === 'function') window.setSearchMode('spotify');
       if (typeof window.renderSongSearchResults === 'function') window.renderSongSearchResults(data.songs || []);
       var results = document.getElementById('search-results');
@@ -243,8 +244,15 @@
   }
 
   function applyPlayback(playback) {
+    var previousUri = state.currentSong && state.currentSong.uri || '';
     state.playback = playback || { active: false, isPlaying: false, progressMs: 0, durationMs: 0 };
     state.playbackAt = Date.now();
+    if (state.playback.track && state.playback.track.uri && state.playback.track.uri !== previousUri && state.currentSong) {
+      state.currentSong = state.playback.track;
+      if (typeof window.syncSpotifyPlaybackTrack === 'function') {
+        window.syncSpotifyPlaybackTrack(state.playback.track);
+      }
+    }
     if (!isCurrent()) return;
     window.playing = !!state.playback.isPlaying;
     if (typeof window.setPlayIcon === 'function') window.setPlayIcon(window.playing);
@@ -254,9 +262,11 @@
   }
 
   async function pollPlayback(silent) {
-    if (!state.status.loggedIn) return;
+    if (!state.status.loggedIn || state.pollBusy) return;
+    state.pollBusy = true;
     try { applyPlayback(await request('/api/spotify/player?t=' + Date.now())); }
     catch (error) { if (!silent) toast(error.message); }
+    finally { state.pollBusy = false; }
   }
 
   function startPolling() {
@@ -312,6 +322,19 @@
     } catch (error) { toast(error.message); return false; }
   }
 
+  async function skip(direction) {
+    if (!isCurrent()) return false;
+    try {
+      await post(direction === 'previous' ? '/api/spotify/player/previous' : '/api/spotify/player/next');
+      state.playbackAt = Date.now();
+      setTimeout(function () { pollPlayback(true); }, 450);
+      return true;
+    } catch (error) {
+      toast(error.message);
+      return false;
+    }
+  }
+
   async function seek(seconds) {
     if (!isCurrent()) return false;
     var positionMs = Math.max(0, Math.round(Number(seconds) * 1000));
@@ -347,6 +370,8 @@
     prepareTrack: prepareTrack,
     isCurrent: isCurrent,
     toggle: toggle,
+    next: function () { return skip('next'); },
+    previous: function () { return skip('previous'); },
     seek: seek,
     currentSeconds: currentSeconds,
     durationSeconds: durationSeconds,

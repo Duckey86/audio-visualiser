@@ -58,6 +58,21 @@ function mapPlaylist(item) {
     cover: images[0] && images[0].url || '',
     trackCount: item.items && item.items.total || item.tracks && item.tracks.total || 0,
     owner: item.owner && (item.owner.display_name || item.owner.id) || '',
+    ownerId: item.owner && item.owner.id || '',
+    collaborative: !!item.collaborative,
+    uri: item.uri || '',
+    spotifyUrl: item.external_urls && item.external_urls.spotify || '',
+    provider: 'spotify',
+  };
+}
+
+function mapArtist(item) {
+  if (!item) return null;
+  const images = Array.isArray(item.images) ? item.images : [];
+  return {
+    id: item.id || '',
+    name: item.name || 'Spotify Artist',
+    cover: images[0] && images[0].url || '',
     uri: item.uri || '',
     spotifyUrl: item.external_urls && item.external_urls.spotify || '',
     provider: 'spotify',
@@ -237,6 +252,26 @@ function createSpotifyProvider(options) {
       device: state.device ? { id: state.device.id || '', name: state.device.name || 'Spotify Device', type: state.device.type || '', restricted: !!state.device.is_restricted } : null,
     };
   }
+  function nextEndpoint(urlValue) {
+    return String(urlValue || '').replace(/^https:\/\/api\.spotify\.com\/v1/, '');
+  }
+  async function collectPages(endpoint, maxItems, itemMapper) {
+    const output = [];
+    let next = endpoint;
+    let total = 0;
+    while (next && output.length < maxItems) {
+      const payload = await api(next);
+      const items = Array.isArray(payload && payload.items) ? payload.items : [];
+      total = Math.max(total, Number(payload && payload.total) || 0);
+      for (const item of items) {
+        const mapped = itemMapper(item);
+        if (mapped) output.push(mapped);
+        if (output.length >= maxItems) break;
+      }
+      next = nextEndpoint(payload && payload.next);
+    }
+    return { items: output, total: total || output.length };
+  }
   async function handle(req, res, url) {
     const pathname = url.pathname;
     if (pathname.indexOf('/api/spotify/') !== 0) return false;
@@ -262,11 +297,37 @@ function createSpotifyProvider(options) {
         const payload = query ? await api('/search?type=track&limit=' + limit + '&q=' + encodeURIComponent(query)) : { tracks: { items: [] } };
         sendJSON(res, { provider: 'spotify', songs: (payload.tracks && payload.tracks.items || []).map(mapTrack).filter(Boolean) });
       } else if (pathname === '/api/spotify/library/tracks' && req.method === 'GET') {
-        const payload = await api('/me/tracks?limit=50&market=from_token');
-        sendJSON(res, { provider: 'spotify', songs: (payload.items || []).map(function (item) { return mapTrack(item.track); }).filter(Boolean), total: Number(payload.total) || 0 });
+        const limit = Math.max(1, Math.min(500, Number(url.searchParams.get('limit')) || 100));
+        const result = await collectPages('/me/tracks?limit=50&market=from_token', limit, function (item) { return mapTrack(item && item.track); });
+        sendJSON(res, { provider: 'spotify', songs: result.items, total: result.total });
       } else if (pathname === '/api/spotify/library/playlists' && req.method === 'GET') {
-        const payload = await api('/me/playlists?limit=50');
-        sendJSON(res, { provider: 'spotify', playlists: (payload.items || []).map(mapPlaylist).filter(Boolean) });
+        const limit = Math.max(1, Math.min(500, Number(url.searchParams.get('limit')) || 200));
+        const profile = await api('/me');
+        const result = await collectPages('/me/playlists?limit=50', limit, mapPlaylist);
+        const playlists = result.items.filter(function (playlist) {
+          return playlist && (playlist.ownerId === profile.id || playlist.collaborative);
+        });
+        sendJSON(res, { provider: 'spotify', playlists: playlists, total: playlists.length });
+      } else if (pathname === '/api/spotify/history/recent' && req.method === 'GET') {
+        const limit = Math.max(1, Math.min(50, Number(url.searchParams.get('limit')) || 20));
+        const payload = await api('/me/player/recently-played?limit=' + limit);
+        const songs = (payload.items || []).map(function (item) {
+          const track = mapTrack(item && item.track);
+          if (track) track.playedAt = item.played_at || '';
+          return track;
+        }).filter(Boolean);
+        sendJSON(res, { provider: 'spotify', songs: songs });
+      } else if (pathname === '/api/spotify/history/top' && req.method === 'GET') {
+        const limit = Math.max(1, Math.min(50, Number(url.searchParams.get('limit')) || 20));
+        const timeRange = /^(short_term|medium_term|long_term)$/.test(String(url.searchParams.get('timeRange') || ''))
+          ? String(url.searchParams.get('timeRange')) : 'medium_term';
+        const trackPayload = await api('/me/top/tracks?limit=' + limit + '&time_range=' + timeRange);
+        const artistPayload = await api('/me/top/artists?limit=' + Math.min(limit, 20) + '&time_range=' + timeRange);
+        sendJSON(res, {
+          provider: 'spotify',
+          songs: (trackPayload.items || []).map(mapTrack).filter(Boolean),
+          artists: (artistPayload.items || []).map(mapArtist).filter(Boolean),
+        });
       } else if (pathname === '/api/spotify/library/playlist-tracks' && req.method === 'GET') {
         let id = String(url.searchParams.get('id') || '').trim().replace(/^spotify:playlist:/, '').replace(/^spotify:/, '').replace(/^playlist:/, '').split('?')[0].trim(); if (!id) { const error = new Error('缺少 Spotify 歌单 ID'); error.status = 400; throw error; } let tracks = []; let rawItems = 0; let next = '/playlists/' + encodeURIComponent(id) + '/items?limit=100&market=from_token&additional_types=track'; while (next && tracks.length < 500) { const payload = await api(next); const items = payload.items || []; rawItems += items.length; tracks = tracks.concat(items.map(function (entry) { return mapTrack(entry && (entry.track || entry.item)); }).filter(Boolean)); next = payload.next ? payload.next.replace(/^https:\/\/api\.spotify\.com\/v1/, '') : ''; } sendJSON(res, { provider: 'spotify', tracks: tracks, songs: tracks, total: tracks.length, rawItems: rawItems, playlistId: id });
       } else if (pathname === '/api/spotify/player' && req.method === 'GET') sendJSON(res, await playback());

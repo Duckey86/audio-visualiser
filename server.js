@@ -1,10 +1,15 @@
 // ====================================================================
 //  粒子音乐可视化播放器 — Server v2
-//  - 网易云搜索 / 歌曲URL / 封面/音频代理
-//  - 扫码登录 (login_qr_*) + cookie 持久化 (./.cookie)
-//  - 试听检测 (freeTrialInfo) + 全 quality 探测
-//  - 所有受保护 API 都会带上已登录用户的 cookie
+//  - Spotify Connect / 本地音乐 / 封面与更新服务
+//  - 旧网易云、QQ 路由保留为兼容壳，不再是启动或主界面的运行依赖
 // ====================================================================
+function legacyProviderUnavailable() {
+  const error = new Error('此版本已停用网易云与 QQ 音乐接口，请使用 Spotify 或本地音乐');
+  error.status = 410;
+  error.code = 'LEGACY_PROVIDER_DISABLED';
+  return Promise.reject(error);
+}
+
 const {
   search,
   cloudsearch,
@@ -43,7 +48,16 @@ const {
   sati_resource_sub_list,
   lyric,
   lyric_new,
-} = require('NeteaseCloudMusicApi');
+} = Object.fromEntries([
+  'search', 'cloudsearch', 'song_detail', 'song_url', 'song_url_v1',
+  'login_qr_key', 'login_qr_create', 'login_qr_check', 'login_status', 'logout',
+  'user_account', 'user_playlist', 'comment_music', 'artist_detail', 'artist_top_song',
+  'artist_songs', 'like', 'likelist', 'song_like_check', 'playlist_tracks',
+  'playlist_track_add', 'playlist_create', 'playlist_detail', 'playlist_track_all',
+  'personalized', 'recommend_resource', 'recommend_songs', 'dj_detail', 'dj_program',
+  'dj_hot', 'dj_sublist', 'user_audio', 'dj_paygift', 'record_recent_voice',
+  'sati_resource_sub_list', 'lyric', 'lyric_new',
+].map(name => [name, legacyProviderUnavailable]));
 const http = require('http');
 const https = require('https');
 const fs   = require('fs');
@@ -3254,6 +3268,26 @@ const server = http.createServer(async (req, res) => {
   const pn = url.pathname;
 
   if (await spotifyProvider.handle(req, res, url)) return;
+
+  const legacyMusicRoute = pn.startsWith('/api/qq/') ||
+    pn.startsWith('/api/login/') ||
+    pn.startsWith('/api/song/') ||
+    pn.startsWith('/api/playlist/') ||
+    pn.startsWith('/api/podcast/') ||
+    pn === '/api/logout' ||
+    pn === '/api/search' ||
+    pn === '/api/discover/home' ||
+    pn === '/api/user/playlists' ||
+    pn === '/api/artist/detail' ||
+    pn === '/api/lyric' ||
+    pn === '/api/weather/radio';
+  if (legacyMusicRoute) {
+    sendJSON(res, {
+      error: 'LEGACY_PROVIDER_DISABLED',
+      message: '网易云与 QQ 音乐接口已停用，请使用 Spotify 或本地音乐',
+    }, 410);
+    return;
+  }
 
   if (pn === '/api/app/version') {
     sendJSON(res, {

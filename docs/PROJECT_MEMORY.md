@@ -175,6 +175,13 @@
 ```
 
 ## Memory Entries
+### 2026-06-29 - Spotify 与本地音乐成为唯一正式音源
+
+- 用户要求保留：正式版本不再需要网易云或 QQ；Spotify Connect 负责搜索、喜欢的音乐、个人歌单、最近播放、常听内容与播放控制，本地文件保留完整音频视觉。
+- 涉及文件：`server.js`、`providers/spotify-provider.js`、`public/index.html`、`public/spotify-integration.js`、`package.json`、`package-lock.json`、`README.md`、`PRIVACY.md`、`docs/SPOTIFY_SETUP.md`。
+- 关键参数/实现：移除 `NeteaseCloudMusicApi` 依赖；首页和歌单面板只读取 Spotify；过滤 Spotify 新接口无权读取的非本人/非协作歌单；最近播放和常听内容接入 Home；Connect 自然切歌同步封面与队列；Spotify 粒子只做与录音无关的环境漂移。
+- 禁止回退或改坏的点：不要重新让网易云/QQ 登录态成为启动、搜索、首页或播放前置；不要让上一首/下一首重建 Spotify 队列；不要把 Librespot 或 Spotify 音频分析放入正式播放链路；不要为了换音源重写或破坏现有封面粒子视觉。
+
 ### 2026-06-28 - Spotify Connect 合规接入
 
 - 用户认可/要求保留：Mineradio 需要兼容 Spotify，但必须遵守 Spotify 平台限制；Spotify 作为 Connect 控制/资料 Provider，不把 Spotify 音频送入节拍分析、离线分析或直链代理。

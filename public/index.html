@@ -10900,7 +10900,8 @@
     #login-provider-netease,
     #login-provider-qq,
     #login-provider-both,
-    #tab-podcast {
+    #tab-podcast,
+    #quality-control {
       display: none !important
     }
   </style>
@@ -10989,8 +10990,6 @@
           <input id="search-input" type="text" placeholder="搜索歌曲、歌手..." autocomplete="off" spellcheck="false">
         </div>
         <div id="search-mode-tabs" class="search-mode-tabs" role="tablist" aria-label="Search mode">
-          <button id="search-mode-song" class="active" type="button" onclick="setSearchMode('song')"
-            aria-selected="true">All</button>
           <button id="search-mode-spotify" type="button" onclick="setSearchMode('spotify')" aria-selected="true"
             class="active">SP</button>
         </div>
@@ -11068,7 +11067,7 @@
         <div class="home-rail">
           <div class="home-section-head">
             <div class="home-section-title" id="home-rail-title">为你准备</div>
-            <div class="home-section-note" id="home-rail-note">正在整理推荐</div>
+            <div class="home-section-note" id="home-rail-note">连接 Spotify 后载入你的音乐</div>
           </div>
           <div id="home-tile-row" class="home-tile-row"></div>
         </div>
@@ -12094,7 +12093,7 @@
     var emptyHomeActive = false;
     var homeForcedOpen = false;
     var homeSuppressed = false;
-    var homeDiscoverState = { loading: false, loaded: false, loggedIn: false, mode: 'starter', songs: [], playlists: [], podcasts: [], error: '', updatedAt: 0 };
+    var homeDiscoverState = { loading: false, loaded: false, loggedIn: false, mode: 'starter', songs: [], recent: [], topArtists: [], playlists: [], podcasts: [], error: '', updatedAt: 0 };
     var spotifyHomeState = { loggedIn: false, checkedAt: 0, playlists: [], savedTracks: [] };
     async function spotifyHomeStatus(force) {
       var now = Date.now();
@@ -12120,10 +12119,34 @@
       return false;
     }
     async function spotifyHomeSavedTracks(limit) {
-      var data = await apiJson('/api/spotify/library/tracks?t=' + Date.now());
+      var data = await apiJson('/api/spotify/library/tracks?limit=' + Math.max(1, Math.min(500, Number(limit) || 100)) + '&t=' + Date.now());
       var songs = (data && data.songs || []).map(cloneSong).filter(Boolean);
       spotifyHomeState.savedTracks = songs;
       return limit ? songs.slice(0, limit) : songs;
+    }
+    async function spotifyHomeRecentTracks(limit) {
+      var data = await apiJson('/api/spotify/history/recent?limit=' + Math.max(1, Math.min(50, Number(limit) || 20)) + '&t=' + Date.now());
+      return (data && data.songs || []).map(cloneSong).filter(Boolean);
+    }
+    async function spotifyHomeTopItems(limit) {
+      var data = await apiJson('/api/spotify/history/top?limit=' + Math.max(1, Math.min(50, Number(limit) || 20)) + '&timeRange=medium_term&t=' + Date.now());
+      return {
+        songs: (data && data.songs || []).map(cloneSong).filter(Boolean),
+        artists: (data && data.artists || []).filter(Boolean)
+      };
+    }
+    function uniqueSpotifySongs(groups, limit) {
+      var seen = {};
+      var songs = [];
+      (groups || []).forEach(function (group) {
+        (group || []).forEach(function (song) {
+          var key = song && (song.uri || song.id || (song.name + '|' + song.artist));
+          if (!key || seen[key]) return;
+          seen[key] = true;
+          songs.push(cloneSong(song));
+        });
+      });
+      return songs.slice(0, limit || 100);
     }
 
     function spotifyLikedPlaylistId() {
@@ -25047,11 +25070,14 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       var loggedOutHome = !homeDiscoverState.loggedIn && !hasAnyPlatformLogin();
       var weatherSongs = []; // Spotify-only: don't fill Home tiles from old NE/QQ weather radio
       var summary = homeListenSummary();
-      if (summary.recent && tiles.length < 5) {
-        tiles.push({ kind: 'recent', title: summary.recent.name || '继续听', sub: summary.recent.artist || summary.recent.source || '', cover: summary.recent.cover, record: summary.recent });
+      var spotifyRecent = homeDiscoverState.recent[0] || null;
+      var homeRecent = spotifyRecent ? Object.assign({}, spotifyRecent, { source: 'Spotify', sourceKey: 'spotify', provider: 'spotify', type: 'spotify' }) : summary.recent;
+      var homeTopArtist = homeDiscoverState.topArtists[0] || summary.topArtist;
+      if (homeRecent && tiles.length < 5) {
+        tiles.push({ kind: 'recent', title: homeRecent.name || '继续听', sub: homeRecent.artist || homeRecent.source || '', cover: homeRecent.cover, record: homeRecent });
       }
-      if (summary.topArtist && tiles.length < 5) {
-        tiles.push({ kind: 'profile', title: summary.topArtist.name, sub: '常听歌手 · ' + summary.topArtist.plays + ' 次', query: summary.topArtist.name });
+      if (homeTopArtist && tiles.length < 5) {
+        tiles.push({ kind: 'profile', title: homeTopArtist.name, sub: homeTopArtist.plays ? ('常听歌手 · ' + homeTopArtist.plays + ' 次') : 'Spotify 常听歌手', query: homeTopArtist.name, cover: homeTopArtist.cover || '' });
       }
       if (!loggedOutHome) {
         homeDiscoverState.songs.slice(0, Math.max(0, 4 - tiles.length)).forEach(function (song, i) {
@@ -25073,7 +25099,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       }
       if (!tiles.length) tiles = fallbackHomeTiles();
       tiles = tiles.slice(0, 5);
-      if (title) title.textContent = summary.recent ? '接着听' : (loggedOutHome ? '先从这里开始' : '你的歌单与推荐');
+      if (title) title.textContent = homeRecent ? '接着听' : (loggedOutHome ? '先从这里开始' : '你的歌单与推荐');
       if (note) {
         var liveNote = homeDiscoverState.updatedAt ? '刚刚更新 · 点击即可播放' : '点击即可播放';
         note.textContent = homeDiscoverState.loading ? '正在整理推荐' : (loggedOutHome && !weatherSongs.length ? '不会自动拉取外部推荐' : (homeDiscoverState.error ? '离线精选' : liveNote));
@@ -25115,8 +25141,9 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       var cardSongB = homeDiscoverState.songs[1] || homeDiscoverState.songs[0];
       var cardSongC = homeDiscoverState.songs[2] || homeDiscoverState.songs[0];
       var playlistItem = homeDiscoverState.playlists[0];
-      var recent = summary.recent;
-      var topArtist = summary.topArtist;
+      var recentSong = homeDiscoverState.recent[0] || null;
+      var recent = recentSong ? Object.assign({}, recentSong, { source: 'Spotify', sourceKey: 'spotify', provider: 'spotify', type: 'spotify' }) : summary.recent;
+      var topArtist = homeDiscoverState.topArtists[0] || summary.topArtist;
       setHomeCardText('home-weather-card-title', '我的歌单');
       setHomeCardText('home-weather-card-sub', homeDiscoverState.loggedIn ? (homeDiscoverState.playlists.length ? homeDiscoverState.playlists.length + ' 个 Spotify 歌单' : '打开 Spotify 歌单库') : '连接 Spotify 后显示歌单');
       setHomeCardText('home-daily-title', cardSongA && cardSongA.name || '每日推荐');
@@ -25126,7 +25153,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       setHomeCardText('home-continue-title', recent && recent.name || '继续听');
       setHomeCardText('home-continue-sub', recent ? (recent.artist || recent.source || 'Spotify') : '最近播放会出现在这里');
       setHomeCardText('home-profile-title', topArtist && topArtist.name || '听歌画像');
-      setHomeCardText('home-profile-sub', topArtist ? ('常听歌手 · ' + topArtist.plays + ' 次') : '播放 Spotify 后生成偏好');
+      setHomeCardText('home-profile-sub', topArtist ? (topArtist.plays ? ('常听歌手 · ' + topArtist.plays + ' 次') : 'Spotify 常听歌手') : '播放 Spotify 后生成偏好');
       setHomeCardText('home-library-title', playlistItem && playlistItem.name || '更多歌曲');
       setHomeCardText('home-library-sub', playlistItem ? ((playlistItem.trackCount || 0) + ' 首 · Spotify 歌单') : '打开 Spotify 歌单或喜欢的音乐');
       setHomeArt('home-weather-art', playlistItem && playlistItem.cover || cardSongA && cardSongA.cover || recent && recent.cover, 280);
@@ -25143,7 +25170,8 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       var token = ++homeDiscoverToken;
       homeDiscoverState.loading = true;
       homeDiscoverState.error = '';
-      renderHomeDiscover();
+      try { renderHomeDiscover(); }
+      catch (renderError) { console.warn('[SpotifyHomeRenderStart]', renderError); }
       try {
         var status = await spotifyHomeStatus(true);
         if (token !== homeDiscoverToken) return;
@@ -25151,6 +25179,8 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
         homeDiscoverState.mode = homeDiscoverState.loggedIn ? 'spotify' : 'starter';
         if (!homeDiscoverState.loggedIn) {
           homeDiscoverState.songs = [];
+          homeDiscoverState.recent = [];
+          homeDiscoverState.topArtists = [];
           homeDiscoverState.playlists = [];
           homeDiscoverState.podcasts = [];
           homeDiscoverState.loaded = true;
@@ -25159,10 +25189,16 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
         }
         var saved = [];
         var lists = [];
+        var recent = [];
+        var topItems = { songs: [], artists: [] };
         try { saved = await spotifyHomeSavedTracks(100); } catch (savedErr) { console.warn('[SpotifyHomeSavedTracks]', savedErr); }
         try { lists = await spotifyHomePlaylists(); } catch (plErr) { console.warn('[SpotifyHomePlaylists]', plErr); lists = saved.length ? [spotifyLikedPlaylistObject(saved)] : []; }
+        try { recent = await spotifyHomeRecentTracks(20); } catch (recentErr) { console.warn('[SpotifyHomeRecent]', recentErr); }
+        try { topItems = await spotifyHomeTopItems(30); } catch (topErr) { console.warn('[SpotifyHomeTop]', topErr); }
         if (token !== homeDiscoverToken) return;
-        homeDiscoverState.songs = saved.map(cloneSong);
+        homeDiscoverState.songs = uniqueSpotifySongs([topItems.songs, saved, recent], 100);
+        homeDiscoverState.recent = recent;
+        homeDiscoverState.topArtists = topItems.artists || [];
         homeDiscoverState.playlists = lists;
         homeDiscoverState.podcasts = [];
         homeDiscoverState.updatedAt = Date.now();
@@ -25173,7 +25209,12 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       } finally {
         if (token === homeDiscoverToken) {
           homeDiscoverState.loading = false;
-          renderHomeDiscover();
+          try { renderHomeDiscover(); }
+          catch (renderError) {
+            console.warn('[SpotifyHomeRenderDone]', renderError);
+            var note = document.getElementById('home-rail-note');
+            if (note) note.textContent = homeDiscoverState.loggedIn ? 'Spotify 音乐库已连接' : '连接 Spotify 后载入你的音乐';
+          }
         }
       }
     }
@@ -25483,7 +25524,6 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       if (show) {
         setPeek(document.getElementById('search-area'), true, 'search');
         renderHomeDiscover();
-        scheduleHomeWeatherLoad(opts.forceLoad ? 1400 : 2400);
         scheduleVisualApply(function () { loadHomeDiscover(!!opts.forceLoad); }, 220, 1200);
       }
       return show;
@@ -25787,6 +25827,11 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
     }
     function openHomeInsight() {
       var summary = homeListenSummary();
+      var spotifyArtist = homeDiscoverState.topArtists[0];
+      if (spotifyArtist && spotifyArtist.name) {
+        runHomeSearch(spotifyArtist.name);
+        return;
+      }
       if (summary.topArtist && summary.topArtist.name) {
         runHomeSearch(summary.topArtist.name);
         return;
@@ -26743,7 +26788,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       writeSearchHistory(items);
     }
     function renderSearchHistory() {
-      if (searchMode !== 'song') return false;
+      if (!isMusicSearchMode(searchMode)) return false;
       var items = readSearchHistory();
       if (!items.length) {
         $results.innerHTML = '';
@@ -27962,6 +28007,13 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
           if (sourceProvider === 'spotify') {
             if (!window.SpotifyIntegration) throw new Error('Spotify 模块未加载');
 
+            if (opts.spotifySyncOnly) {
+              hideLoading();
+              recordSpotifyListenNow(song);
+              forcePlaybackControlsInteractive();
+              return;
+            }
+
             var spotifyUris = playQueue
               .slice(idx)
               .map(function (s) { return s && s.uri; })
@@ -28140,6 +28192,28 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
         showToast(playbackFailureToastText(setupErr));
       }
     }
+
+    function syncSpotifyPlaybackTrack(track) {
+      if (!track || songProviderKey(track) !== 'spotify') return;
+      var key = track.uri || track.id || '';
+      if (!key) return;
+      var current = currentCoverSong();
+      var currentKey = current && (current.uri || current.id || '');
+      if (currentKey === key) return;
+      var nextIndex = playQueue.findIndex(function (song) {
+        return song && (song.uri === track.uri || (!!track.id && song.id === track.id));
+      });
+      if (nextIndex < 0) {
+        playQueue = [cloneSong(track)];
+        nextIndex = 0;
+      } else {
+        playQueue[nextIndex] = Object.assign({}, playQueue[nextIndex], track);
+      }
+      playQueueAt(nextIndex, { spotifySyncOnly: true, preserveHomeState: true }).catch(function (error) {
+        console.warn('[SpotifyRemoteTrackSync]', error);
+      });
+    }
+    window.syncSpotifyPlaybackTrack = syncSpotifyPlaybackTrack;
     async function attemptAudioPlay(opts) {
       opts = opts || {};
       try {
@@ -28218,18 +28292,26 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
         ? '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'
         : '<path d="M8 5v14l11-7z"/>';
     }
-    function nextTrack() {
+    async function nextTrack() {
       if (!playQueue.length) return;
       playToggleBusy = false;
       forcePlaybackControlsInteractive();
+      if (window.SpotifyIntegration && window.SpotifyIntegration.isCurrent() && typeof window.SpotifyIntegration.next === 'function') {
+        await window.SpotifyIntegration.next();
+        return;
+      }
       if (playMode === 'shuffle') currentIdx = Math.floor(Math.random() * playQueue.length);
       else currentIdx = (currentIdx + 1) % playQueue.length;
       Promise.resolve(playQueueAt(currentIdx)).finally(forcePlaybackControlsInteractive);
     }
-    function prevTrack() {
+    async function prevTrack() {
       if (!playQueue.length) return;
       playToggleBusy = false;
       forcePlaybackControlsInteractive();
+      if (window.SpotifyIntegration && window.SpotifyIntegration.isCurrent() && typeof window.SpotifyIntegration.previous === 'function') {
+        await window.SpotifyIntegration.previous();
+        return;
+      }
       currentIdx = (currentIdx - 1 + playQueue.length) % playQueue.length;
       Promise.resolve(playQueueAt(currentIdx)).finally(forcePlaybackControlsInteractive);
     }
@@ -29314,7 +29396,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       if (!id) return;
 
       homeForcedOpen = false;
-      homeSuppressed = false;
+      homeSuppressed = true;
       updateEmptyHomeVisibility();
       showLoading();
 
@@ -32820,7 +32902,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       return !!(st && st.loggedIn);
     }
     function hasAnyPlatformLogin() {
-      return hasPlatformLogin('netease') || hasPlatformLogin('qq') || !!(spotifyHomeState && spotifyHomeState.loggedIn);
+      return !!(spotifyHomeState && spotifyHomeState.loggedIn);
     }
     function firstLoggedProvider() {
       if (hasPlatformLogin(activeAccountProvider)) return activeAccountProvider;
@@ -32966,6 +33048,10 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
     }
     async function showLoginModal(opts) {
       opts = opts || {};
+      if (window.SpotifyIntegration && typeof window.SpotifyIntegration.showSetup === 'function') {
+        window.SpotifyIntegration.showSetup();
+        return;
+      }
       if (opts.provider) loginProvider = opts.provider === 'qq' ? 'qq' : 'netease';
       var modal = document.getElementById('login-modal');
       openGsapModal(modal);
@@ -36043,8 +36129,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
     if (fx.particleLyrics) createLyricsParticles();
     if (fx.backCover) createBackCoverLayer();
     initIdleGuideCanvas();
-    var startupLoginStatusPromise = Promise.all([refreshLoginStatus(), refreshQQLoginStatus()]);
-    startQQLoginStatusAutoRefresh();
+    var startupLoginStatusPromise = spotifyHomeStatus(true);
     if (startupLoginStatusPromise && startupLoginStatusPromise.then) {
       startupLoginStatusPromise.then(function () {
         if (hasAnyPlatformLogin()) {
@@ -36053,7 +36138,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
         }
         if (document.body.classList.contains('splash-active')) return;
         var homeShown = updateEmptyHomeVisibility({ forceLoad: hasAnyPlatformLogin() });
-        if (!hasAnyPlatformLogin()) maybeRunStartupLoginGuide('status');
+        if (!hasAnyPlatformLogin()) renderHomeDiscover();
         else if (!homeShown) maybeRunStartupLoginGuide('status');
       });
     }
@@ -36290,7 +36375,22 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
         lyricSunTarget = lyricSunHold > 0.16 ? clamp01((lyricSunHold - 0.16) / 0.84) : 0;
         lyricSunEnergy += (lyricSunTarget - lyricSunEnergy) * (lyricSunTarget > lyricSunEnergy ? 0.075 : 0.030);
       } else {
-        smoothBass *= 0.91; smoothMid *= 0.91; smoothTreb *= 0.91; smoothEnergy *= 0.91; beatPulse *= 0.82;
+        var spotifyAmbientActive = !!(playing && window.SpotifyIntegration && window.SpotifyIntegration.isCurrent());
+        if (spotifyAmbientActive) {
+          // Spotify Connect does not expose audio to Mineradio. Keep the album particles alive
+          // with an independent ambient drift; it is deliberately not timed to the recording.
+          var ambientTime = uniforms.uTime.value;
+          var ambientBass = 0.16 + Math.sin(ambientTime * 0.37) * 0.035 + Math.sin(ambientTime * 0.13 + 1.4) * 0.025;
+          var ambientMid = 0.13 + Math.sin(ambientTime * 0.29 + 2.1) * 0.030;
+          var ambientTreb = 0.10 + Math.sin(ambientTime * 0.21 + 4.2) * 0.022;
+          smoothBass += (ambientBass - smoothBass) * 0.026;
+          smoothMid += (ambientMid - smoothMid) * 0.024;
+          smoothTreb += (ambientTreb - smoothTreb) * 0.021;
+          smoothEnergy += (0.18 - smoothEnergy) * 0.022;
+          beatPulse *= 0.82;
+        } else {
+          smoothBass *= 0.91; smoothMid *= 0.91; smoothTreb *= 0.91; smoothEnergy *= 0.91; beatPulse *= 0.82;
+        }
         liveCamAvg *= 0.94;
         liveCamPeak = Math.max(0.28, liveCamPeak * 0.98);
         liveCamLastRaw *= 0.80;
