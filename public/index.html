@@ -490,9 +490,13 @@
       position: fixed;
       inset: 0;
       z-index: 0;
-      background: var(--custom-bg-color, #000);
+      background: #05070a;
       overflow: hidden;
       transition: background .35s ease
+    }
+
+    body.custom-background-override #custom-bg {
+      background: var(--custom-bg-color, #000);
     }
 
     #custom-bg-video {
@@ -550,8 +554,8 @@
       z-index: 0;
       background-size: cover;
       background-position: center;
-      filter: blur(120px) brightness(0.18) saturate(1.5);
-      transform: scale(1.4);
+      filter: blur(90px) brightness(0.45) saturate(1.8);
+      transform: scale(1.35);
       transition: background-image 1.5s ease, opacity 1.5s ease;
       opacity: 0
     }
@@ -561,7 +565,7 @@
     }
 
     body.custom-background-override #album-bg {
-      opacity: 0 !important
+      opacity: 1 !important
     }
 
     #canvas-container {
@@ -11280,8 +11284,7 @@
           <div class="fx-toggle-grid">
             <div class="fx-toggle" id="t-float" onclick="toggleFx('floatLayer')"><span>浮空粒子层</span><span
                 class="dot"></span></div>
-            <div class="fx-toggle" id="t-playingAura" onclick="toggleFx('playingAura')"
-              title="播放时给舞台增加封面色光环与星尘呼吸">
+            <div class="fx-toggle" id="t-playingAura" onclick="toggleFx('playingAura')" title="播放时给舞台增加封面色光环与星尘呼吸">
               <span>播放气场</span><span class="dot"></span>
             </div>
             <div class="fx-toggle" id="t-cinema" onclick="toggleFx('cinema')"><span>电影镜头</span><span class="dot"></span>
@@ -17280,7 +17283,7 @@ void main(){
         var savedBgMode = /^(cover|custom)$/.test(String(raw.backgroundColorMode || '')) ? String(raw.backgroundColorMode) : '';
         var savedBgCustom = savedBgMode
           ? savedBgMode === 'custom'
-          : (raw.backgroundColorCustom === true || (raw.backgroundColorCustom !== false && savedBgColor !== '#000000') || savedBgOpacity < 1);
+          : (raw.backgroundColorCustom === true || (raw.backgroundColorCustom !== false && savedBgColor !== '#000000'));
         var desktopLyricsSchemaReady = raw.desktopLyricsSchema === 'desktop-lyrics-v3';
         var savedShelfCameraMode = normalizeShelfCameraMode(raw.shelfCameraMode || fxDefaults.shelfCameraMode);
         var savedShelfAngleManual = raw.shelfAngleYManual === true;
