@@ -30769,7 +30769,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       var hasVideo = !!(media && media.type === 'video');
       var opacity = clampRange(fx.backgroundOpacity == null ? 1 : Number(fx.backgroundOpacity), 0, 1);
       var customColor = fx.backgroundColorMode === 'custom' || !!fx.backgroundColorCustom;
-      var override = !!media || customColor || opacity < 1;
+      var override = !!media || customColor;
       var root = document.documentElement;
       var layer = document.getElementById('custom-bg');
       var video = document.getElementById('custom-bg-video');
@@ -30854,8 +30854,6 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
     }
     function setCustomBackgroundOpacity(value, silent) {
       fx.backgroundOpacity = clampRange(Number(value), 0, 1);
-      fx.backgroundColorMode = 'custom';
-      fx.backgroundColorCustom = true;
       updateCustomBackgroundControls();
       saveLyricLayout();
       if (!silent) showToast('背景透明度: ' + Math.round(fx.backgroundOpacity * 100) + '%');
