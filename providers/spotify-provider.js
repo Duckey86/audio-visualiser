@@ -249,8 +249,45 @@ function createSpotifyProvider(options) {
       durationMs: state.item && Number(state.item.duration_ms) || 0,
       track: state.item && state.item.type === 'track' ? mapTrack(state.item) : null,
       itemType: state.item && state.item.type || '',
-      device: state.device ? { id: state.device.id || '', name: state.device.name || 'Spotify Device', type: state.device.type || '', restricted: !!state.device.is_restricted } : null,
+      shuffleState: !!state.shuffle_state,
+      repeatState: /^(off|track|context)$/.test(String(state.repeat_state || '')) ? state.repeat_state : 'off',
+      volumePercent: state.device && state.device.volume_percent != null ? Number(state.device.volume_percent) : null,
+      device: state.device ? {
+        id: state.device.id || '',
+        name: state.device.name || 'Spotify Device',
+        type: state.device.type || '',
+        restricted: !!state.device.is_restricted,
+        supportsVolume: state.device.supports_volume !== false,
+        volumePercent: state.device.volume_percent != null ? Number(state.device.volume_percent) : null,
+      } : null,
     };
+  }
+  function playbackModeSettings(body) {
+    body = body || {};
+    const mode = String(body.mode || '').toLowerCase();
+    let shuffleState = typeof body.shuffleState === 'boolean' ? body.shuffleState : null;
+    let repeatState = /^(off|track|context)$/.test(String(body.repeatState || '')) ? String(body.repeatState) : '';
+    if (mode === 'shuffle') {
+      if (shuffleState == null) shuffleState = true;
+      if (!repeatState) repeatState = 'context';
+    } else if (mode === 'single') {
+      if (shuffleState == null) shuffleState = false;
+      if (!repeatState) repeatState = 'track';
+    } else if (mode === 'loop') {
+      if (shuffleState == null) shuffleState = false;
+      if (!repeatState) repeatState = 'context';
+    }
+    return {
+      shuffleState: shuffleState == null ? false : !!shuffleState,
+      repeatState: repeatState || 'context',
+    };
+  }
+  async function applyPlaybackMode(deviceId, settings) {
+    settings = playbackModeSettings(settings);
+    const deviceQuery = deviceId ? '&device_id=' + encodeURIComponent(deviceId) : '';
+    await api('/me/player/shuffle?state=' + (settings.shuffleState ? 'true' : 'false') + deviceQuery, { method: 'PUT' });
+    await api('/me/player/repeat?state=' + encodeURIComponent(settings.repeatState) + deviceQuery, { method: 'PUT' });
+    return settings;
   }
   function nextEndpoint(urlValue) {
     return String(urlValue || '').replace(/^https:\/\/api\.spotify\.com\/v1/, '');
@@ -333,20 +370,22 @@ function createSpotifyProvider(options) {
       } else if (pathname === '/api/spotify/player' && req.method === 'GET') sendJSON(res, await playback());
       else if (pathname === '/api/spotify/player/play' && req.method === 'POST') {
         const body = await options.readBody(req);
-        const device = await pickDevice(); try { await api('/me/player/shuffle?state=false&device_id=' + encodeURIComponent(device.id), { method: 'PUT' }); } catch (_) { } try { await api('/me/player/repeat?state=off&device_id=' + encodeURIComponent(device.id), { method: 'PUT' }); } catch (_) { } const uris = Array.isArray(body.uris) ? body.uris.map(String).filter(function (uri) { return uri.indexOf('spotify:track:') === 0; }).slice(0, 50) : [];
+        const device = await pickDevice(); const modeSettings = playbackModeSettings(body); const uris = Array.isArray(body.uris) ? body.uris.map(String).filter(function (uri) { return uri.indexOf('spotify:track:') === 0; }).slice(0, 50) : [];
         if (!uris.length) { const error = new Error('缺少 Spotify 播放内容'); error.status = 400; throw error; }
         await api('/me/player', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device_ids: [device.id], play: true }) });
-        try { await api('/me/player/shuffle?state=false&device_id=' + encodeURIComponent(device.id), { method: 'PUT' }); } catch (_) { }
-        try { await api('/me/player/repeat?state=off&device_id=' + encodeURIComponent(device.id), { method: 'PUT' }); } catch (_) { }
+        try { await applyPlaybackMode(device.id, modeSettings); } catch (_) { }
         await api('/me/player/play?device_id=' + encodeURIComponent(device.id), {
           method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uris: uris, position_ms: Math.max(0, Number(body.positionMs) || 0) })
         });
+        try { await applyPlaybackMode(device.id, modeSettings); } catch (_) { }
         sendJSON(res, { ok: true });
       } else if (pathname === '/api/spotify/player/pause' && req.method === 'POST') { await api('/me/player/pause', { method: 'PUT' }); sendJSON(res, { ok: true }); }
       else if (pathname === '/api/spotify/player/resume' && req.method === 'POST') { await api('/me/player/play', { method: 'PUT' }); sendJSON(res, { ok: true }); }
       else if (pathname === '/api/spotify/player/next' && req.method === 'POST') { await api('/me/player/next', { method: 'POST' }); sendJSON(res, { ok: true }); }
       else if (pathname === '/api/spotify/player/previous' && req.method === 'POST') { await api('/me/player/previous', { method: 'POST' }); sendJSON(res, { ok: true }); }
       else if (pathname === '/api/spotify/player/seek' && req.method === 'POST') { const body = await options.readBody(req); await api('/me/player/seek?position_ms=' + Math.max(0, Math.round(Number(body.positionMs) || 0)), { method: 'PUT' }); sendJSON(res, { ok: true }); }
+      else if (pathname === '/api/spotify/player/volume' && req.method === 'POST') { const body = await options.readBody(req); const device = await pickDevice(); const volumePercent = Math.max(0, Math.min(100, Math.round(Number(body.volumePercent) || 0))); await api('/me/player/volume?volume_percent=' + volumePercent + '&device_id=' + encodeURIComponent(device.id), { method: 'PUT' }); sendJSON(res, { ok: true, volumePercent: volumePercent }); }
+      else if (pathname === '/api/spotify/player/mode' && req.method === 'POST') { const body = await options.readBody(req); const device = await pickDevice(); const applied = await applyPlaybackMode(device.id, body); sendJSON(res, Object.assign({ ok: true }, applied)); }
       else sendJSON(res, { error: 'Spotify endpoint not found' }, 404);
       return true;
     } catch (error) {

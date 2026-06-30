@@ -11026,10 +11026,10 @@
         </div>
 
         <div class="home-grid">
-          <button class="home-card" data-home-tone="library" type="button" onclick="openHomeLibrary()">
-            <div class="home-card-label">Library</div>
-            <div class="home-card-title" id="home-weather-card-title">我的歌单</div>
-            <div class="home-card-sub" id="home-weather-card-sub">打开左侧歌单库</div>
+          <button class="home-card" data-home-tone="library" type="button" onclick="openHomeNowPlayingOrLibrary()">
+            <div class="home-card-label">Now Playing</div>
+            <div class="home-card-title" id="home-weather-card-title">正在播放</div>
+            <div class="home-card-sub" id="home-weather-card-sub">播放一首歌后这里会显示当前歌曲</div>
             <div class="home-card-art" id="home-weather-art"></div>
           </button>
           <button class="home-card" data-home-tone="mix" type="button" onclick="playHomeSong(0)">
@@ -11066,7 +11066,7 @@
 
         <div class="home-rail">
           <div class="home-section-head">
-            <div class="home-section-title" id="home-rail-title">为你准备</div>
+            <div class="home-section-title" id="home-rail-title">为你推荐</div>
             <div class="home-section-note" id="home-rail-note">连接 Spotify 后载入你的音乐</div>
           </div>
           <div id="home-tile-row" class="home-tile-row"></div>
@@ -11280,6 +11280,10 @@
           <div class="fx-toggle-grid">
             <div class="fx-toggle" id="t-float" onclick="toggleFx('floatLayer')"><span>浮空粒子层</span><span
                 class="dot"></span></div>
+            <div class="fx-toggle" id="t-playingAura" onclick="toggleFx('playingAura')"
+              title="播放时给舞台增加封面色光环与星尘呼吸">
+              <span>播放气场</span><span class="dot"></span>
+            </div>
             <div class="fx-toggle" id="t-cinema" onclick="toggleFx('cinema')"><span>电影镜头</span><span class="dot"></span>
             </div>
             <div class="fx-toggle" id="t-lyricGlow" onclick="toggleFx('lyricGlow')"><span>歌词溢光</span><span
@@ -12177,7 +12181,7 @@
     }
     async function spotifyPlaylistTracks(id) {
       id = String(id || '').trim();
-      var cleanId = id.replace(/^spotify:playlist:/, '').replace(/^spotify:/, '').replace(/^playlist:/, '');
+      var cleanId = id.replace(/^spotify:playlist:/, '').replace(/^spotify:/, '').replace(/^playlist:/, '').split('?')[0].trim();
 
       if (isSpotifyLikedPlaylistId(id) || isSpotifyLikedPlaylistId(cleanId)) {
         return await spotifyHomeSavedTracks(100);
@@ -12185,7 +12189,14 @@
 
       var r = await apiJson('/api/spotify/library/playlist-tracks?id=' + encodeURIComponent(cleanId));
       if (r && r.error) throw new Error(r.error);
-      return (r && r.tracks || r && r.songs || []).map(cloneSong).filter(Boolean);
+      return (r && r.tracks || r && r.songs || []).map(function (song, index) {
+        song = cloneSong(song);
+        if (song && cleanId) {
+          song.spotifyContextUri = 'spotify:playlist:' + cleanId;
+          song.spotifyContextIndex = index;
+        }
+        return song;
+      }).filter(Boolean);
     }
 
     async function spotifyHomePlaylists() {
@@ -12744,7 +12755,7 @@
       desktopLyricsFps: 60,
       wallpaperMode: false,
       wallpaperOpacity: 1,
-      floatLayer: false, cinema: true, edge: false, aiDepth: false, bloom: false, lyricGlow: true,
+      floatLayer: false, playingAura: true, cinema: true, edge: false, aiDepth: false, bloom: false, lyricGlow: true,
       lyricGlowBeat: true,
       lyricGlowParticles: false,
       lyricCameraLock: false,
@@ -12816,6 +12827,7 @@
       controlGlassChromaticOffset: 90,
       backgroundColorCustom: false,
       floatLayer: false,
+      playingAura: true,
       cinema: true,
       edge: false,
       aiDepth: false,
@@ -16022,6 +16034,178 @@ void main(){
     }
 
     // ============================================================
+    //  播放气场 — 歌曲开始后给舞台补一层封面色呼吸光环和星尘
+    // ============================================================
+    var PLAYING_AURA_DUST_COUNT = 240;
+    var playingAuraGroup = null;
+    var playingAuraUniforms = null;
+    var playingAuraAlpha = 0;
+    var playingAuraPaletteKey = '';
+    var playingAuraForward = new THREE.Vector3();
+
+    function createPlayingAuraLayer() {
+      if (playingAuraGroup) return;
+      playingAuraUniforms = {
+        uTime: uniforms.uTime,
+        uBass: uniforms.uBass,
+        uBeat: uniforms.uBeat,
+        uEnergy: uniforms.uEnergy,
+        uPixel: uniforms.uPixel,
+        uDotTex: uniforms.uDotTex,
+        uAuraAlpha: { value: 0 },
+        uColorA: { value: new THREE.Color('#9db8cf') },
+        uColorB: { value: new THREE.Color('#f4d28a') }
+      };
+      playingAuraGroup = new THREE.Group();
+      playingAuraGroup.frustumCulled = false;
+
+      var auraPlane = new THREE.Mesh(
+        new THREE.PlaneGeometry(9.8, 5.9, 1, 1),
+        new THREE.ShaderMaterial({
+          uniforms: playingAuraUniforms,
+          vertexShader: `
+    precision highp float;
+    varying vec2 vUv;
+    void main(){
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+          fragmentShader: `
+    precision highp float;
+    uniform float uTime, uBass, uBeat, uEnergy, uAuraAlpha;
+    uniform vec3 uColorA, uColorB;
+    varying vec2 vUv;
+    void main(){
+      vec2 p = (vUv - 0.5) * vec2(1.74, 1.0);
+      float r = length(p);
+      float a = atan(p.y, p.x);
+      float wave = sin(a * 3.0 + uTime * 0.34) + sin(a * 5.0 - uTime * 0.21);
+      float ringA = 1.0 - smoothstep(0.020, 0.120, abs(r - (0.34 + wave * 0.012 - uBass * 0.018)));
+      float ringB = 1.0 - smoothstep(0.022, 0.138, abs(r - (0.62 + sin(a * 2.0 - uTime * 0.18) * 0.016 + uBeat * 0.020)));
+      float mist = smoothstep(0.98, 0.16, r) * (0.10 + 0.13 * uEnergy);
+      float pulse = 0.72 + uBass * 0.50 + uBeat * 0.34;
+      float edgeFade = 1.0 - smoothstep(0.72, 1.04, r);
+      vec3 col = mix(uColorA, uColorB, clamp(r + wave * 0.08, 0.0, 1.0));
+      float alpha = (ringA * 0.090 + ringB * 0.070 + mist * 0.150) * edgeFade * uAuraAlpha * pulse;
+      gl_FragColor = vec4(col, alpha);
+    }
+  `,
+          transparent: true,
+          depthWrite: false,
+          depthTest: false,
+          side: THREE.DoubleSide,
+          blending: THREE.AdditiveBlending
+        })
+      );
+      auraPlane.renderOrder = -14;
+      playingAuraGroup.add(auraPlane);
+
+      var dustGeo = new THREE.BufferGeometry();
+      var dustPos = new Float32Array(PLAYING_AURA_DUST_COUNT * 3);
+      var dustSeed = new Float32Array(PLAYING_AURA_DUST_COUNT);
+      var dustRad = new Float32Array(PLAYING_AURA_DUST_COUNT);
+      for (var i = 0; i < PLAYING_AURA_DUST_COUNT; i++) {
+        var ang = Math.random() * Math.PI * 2;
+        var rad = Math.pow(Math.random(), 0.62);
+        var x = Math.cos(ang) * rad * 4.45 + (Math.random() - 0.5) * 0.18;
+        var y = Math.sin(ang) * rad * 2.22 + (Math.random() - 0.5) * 0.12;
+        dustPos[i * 3] = x;
+        dustPos[i * 3 + 1] = y;
+        dustPos[i * 3 + 2] = 0.025 + Math.random() * 0.03;
+        dustSeed[i] = Math.random() * 1000;
+        dustRad[i] = rad;
+      }
+      dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+      dustGeo.setAttribute('aSeed', new THREE.BufferAttribute(dustSeed, 1));
+      dustGeo.setAttribute('aRad', new THREE.BufferAttribute(dustRad, 1));
+      var dustMat = new THREE.ShaderMaterial({
+        uniforms: playingAuraUniforms,
+        vertexShader: `
+    precision highp float;
+    uniform float uTime, uBass, uBeat, uPixel, uAuraAlpha;
+    attribute float aSeed, aRad;
+    varying float vA;
+    varying float vMix;
+    void main(){
+      vec3 pos = position;
+      float drift = uTime * (0.055 + fract(aSeed * 0.173) * 0.060);
+      float cs = cos(drift), sn = sin(drift);
+      pos.xy = mat2(cs, -sn, sn, cs) * pos.xy;
+      pos.x += sin(uTime * 0.42 + aSeed) * 0.030;
+      pos.y += cos(uTime * 0.36 + aSeed * 1.7) * 0.024;
+      pos.xy *= 1.0 + uBass * 0.035 + uBeat * 0.012;
+      vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
+      float twinkle = 0.58 + 0.42 * sin(uTime * (0.70 + fract(aSeed) * 0.38) + aSeed);
+      vA = (0.16 + 0.44 * (1.0 - aRad)) * twinkle * uAuraAlpha;
+      vMix = clamp(aRad + sin(aSeed) * 0.18, 0.0, 1.0);
+      gl_PointSize = clamp((1.15 + (1.0 - aRad) * 1.95 + uBeat * 0.90) * uPixel, 1.0, 4.6);
+      gl_Position = projectionMatrix * mvPos;
+    }
+  `,
+        fragmentShader: `
+    precision highp float;
+    uniform sampler2D uDotTex;
+    uniform vec3 uColorA, uColorB;
+    varying float vA, vMix;
+    void main(){
+      vec4 tex = texture2D(uDotTex, gl_PointCoord);
+      if (tex.a < 0.025) discard;
+      vec3 col = mix(uColorA, uColorB, vMix);
+      gl_FragColor = vec4(col, tex.a * vA);
+    }
+  `,
+        transparent: true,
+        depthWrite: false,
+        depthTest: false,
+        blending: THREE.AdditiveBlending
+      });
+      var dust = new THREE.Points(dustGeo, dustMat);
+      dust.frustumCulled = false;
+      dust.renderOrder = -13;
+      playingAuraGroup.add(dust);
+
+      scene.add(playingAuraGroup);
+      syncPlayingAuraColors(true);
+      playingAuraGroup.visible = false;
+    }
+
+    function syncPlayingAuraColors(force) {
+      if (!playingAuraUniforms) return;
+      var pal = (stageLyrics && (stageLyrics.coverPalette || stageLyrics.palette)) || {};
+      var key = [
+        pal.primary || '',
+        pal.secondary || '',
+        pal.highlight || '',
+        fx && fx.visualTintMode,
+        fx && fx.visualTintColor
+      ].join('|');
+      if (!force && key === playingAuraPaletteKey) return;
+      playingAuraPaletteKey = key;
+      var primary = pal.secondary || pal.primary || (fx && fx.visualTintColor) || '#9db8cf';
+      var highlight = pal.highlight || pal.primary || '#f4d28a';
+      playingAuraUniforms.uColorA.value.copy(lyricThreeColor(primary, '#9db8cf', 0.34));
+      playingAuraUniforms.uColorB.value.copy(lyricThreeColor(highlight, '#f4d28a', 0.48));
+    }
+
+    function updatePlayingAuraLayer(dt) {
+      if (!playingAuraGroup) createPlayingAuraLayer();
+      if (!playingAuraGroup || !playingAuraUniforms) return;
+      var active = fx && fx.playingAura !== false && !!playing;
+      var target = active ? 1 : 0;
+      var ease = Math.min(1, Math.max(0.04, dt * (target ? 2.2 : 3.6)));
+      playingAuraAlpha += (target - playingAuraAlpha) * ease;
+      playingAuraGroup.visible = playingAuraAlpha > 0.012;
+      var presetSoftener = fx && fx.preset === SKULL_PRESET_INDEX ? 0.58 : 1.0;
+      var intensity = clampRange(Number(fx && fx.intensity) || 1, 0.45, 1.22);
+      playingAuraUniforms.uAuraAlpha.value = playingAuraAlpha * 0.76 * presetSoftener * intensity;
+      syncPlayingAuraColors(false);
+      camera.getWorldDirection(playingAuraForward);
+      playingAuraGroup.position.copy(camera.position).addScaledVector(playingAuraForward, 5.25);
+      playingAuraGroup.quaternion.copy(camera.quaternion);
+    }
+
+    // ============================================================
     //  安魂 — 3D 粒子建模层
     // ============================================================
     var SKULL_PRESET_INDEX = 6;
@@ -16743,6 +16927,11 @@ void main(){
     var lyricCameraTarget = new THREE.Vector3();
     var lyricLayoutBase = new THREE.Vector3();
     var lyricLayoutTarget = new THREE.Vector3();
+    var lyricScreenSafePos = new THREE.Vector3();
+    var lyricScreenSafeRel = new THREE.Vector3();
+    var lyricScreenSafeForward = new THREE.Vector3();
+    var lyricScreenSafeRight = new THREE.Vector3();
+    var lyricScreenSafeUp = new THREE.Vector3();
     var lyricCoverWorldPos = new THREE.Vector3();
     var lyricCoverWorldQuat = new THREE.Quaternion();
     var lyricBaseEuler = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -16809,6 +16998,53 @@ void main(){
       var viewportFit = Math.min(1, safeW / scaledW, safeH / scaledH);
       var lockScaleCap = Math.min(1, (skullSafe ? 0.94 : LYRIC_CAMERA_LOCK_MAX_SCALE) / layoutScale);
       return clampRange(Math.min(viewportFit, lockScaleCap), skullSafe ? 0.36 : 0.42, 1);
+    }
+    function applyStageLyricScreenSafeFit(skipMouthLock, shelfDetailOpen) {
+      if (skipMouthLock || !camera || !camera.isPerspectiveCamera || !stageLyrics.group) return;
+      var bounds = getStageLyricLockBounds();
+      if (!bounds || !bounds.w || !bounds.h) return;
+      camera.getWorldDirection(lyricScreenSafeForward).normalize();
+      lyricScreenSafeRight.set(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
+      lyricScreenSafeUp.set(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
+      stageLyrics.group.getWorldPosition(lyricScreenSafePos);
+      lyricScreenSafeRel.copy(lyricScreenSafePos).sub(camera.position);
+      var distance = lyricScreenSafeRel.dot(lyricScreenSafeForward);
+      if (!isFinite(distance) || distance <= 0.35) return;
+      var fov = (camera.fov || 45) * Math.PI / 180;
+      var visibleH = 2 * Math.tan(fov * 0.5) * distance;
+      var visibleW = visibleH * (camera.aspect || (innerWidth / Math.max(1, innerHeight)) || 1.78);
+      if (!isFinite(visibleW) || !isFinite(visibleH) || visibleW <= 0 || visibleH <= 0) return;
+      var sideShelf = !!(shelfManager && shelfManager.getMode && shelfManager.getMode() === 'side' && (shelfPinnedOpen || shelfDetailOpen || shelfVisibility > 0.20));
+      var safeLeft = -visibleW * (sideShelf ? 0.50 : 0.46);
+      var safeRight = visibleW * (sideShelf ? 0.24 : 0.46);
+      var safeBottom = -visibleH * 0.38;
+      var safeTop = visibleH * 0.40;
+      var currentScale = Math.max(0.001, Number(stageLyrics.group.scale.x) || 1);
+      var scaledW = Math.max(0.01, bounds.w * currentScale);
+      var scaledH = Math.max(0.01, bounds.h * currentScale);
+      var fitScale = Math.min(1, (safeRight - safeLeft) / scaledW, (safeTop - safeBottom) / scaledH);
+      if (isFinite(fitScale) && fitScale < 0.995) {
+        fitScale = clampRange(fitScale, sideShelf ? 0.56 : 0.64, 1);
+        stageLyrics.group.scale.multiplyScalar(fitScale);
+        currentScale *= fitScale;
+        scaledW = Math.max(0.01, bounds.w * currentScale);
+        scaledH = Math.max(0.01, bounds.h * currentScale);
+      }
+      var halfW = scaledW * 0.5;
+      var halfH = scaledH * 0.5;
+      var cx = lyricScreenSafeRel.dot(lyricScreenSafeRight);
+      var cy = lyricScreenSafeRel.dot(lyricScreenSafeUp);
+      var dx = 0;
+      var dy = 0;
+      if (cx - halfW < safeLeft) dx = safeLeft - (cx - halfW);
+      else if (cx + halfW > safeRight) dx = safeRight - (cx + halfW);
+      if (cy - halfH < safeBottom) dy = safeBottom - (cy - halfH);
+      else if (cy + halfH > safeTop) dy = safeTop - (cy + halfH);
+      if (Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001) {
+        stageLyrics.group.position
+          .addScaledVector(lyricScreenSafeRight, dx)
+          .addScaledVector(lyricScreenSafeUp, dy);
+      }
     }
     // 兼容旧变量名以便其它代码不破坏
     var lyricsParticles = null;
@@ -17084,6 +17320,7 @@ void main(){
           lyricGlow: raw.lyricGlow !== false,
           lyricGlowBeat: raw.lyricGlowBeat !== false,
           lyricGlowParticles: !!raw.lyricGlowParticles,
+          playingAura: raw.playingAura !== false,
           cinema: raw.cinema !== false,
           bloom: raw.bloom === true,
           edge: raw.edge === true,
@@ -17174,6 +17411,7 @@ void main(){
           lyricGlow: !!fx.lyricGlow,
           lyricGlowBeat: !!fx.lyricGlowBeat,
           lyricGlowParticles: !!fx.lyricGlowParticles,
+          playingAura: fx.playingAura !== false,
           cinema: !!fx.cinema,
           bloom: !!fx.bloom,
           edge: !!fx.edge,
@@ -18636,6 +18874,7 @@ void main(){
         stageLyricTargetQuaternion(lyricCoverWorldQuat, layoutTiltX, layoutTiltY);
         stageLyrics.group.quaternion.copy(lyricTargetQuat);
       }
+      applyStageLyricScreenSafeFit(skullMouthLyrics, shelfDetailOpen);
       function tickMesh(mesh, isCurrent) {
         if (!mesh) return false;
         mesh.userData.age += dt;
@@ -18789,10 +19028,55 @@ void main(){
         }
         return 1;
       }
-      var nextT = nextLine && nextLine.t > line.t ? nextLine.t : Math.min((audio && audio.duration) || now + 4, line.t + (line.duration || 4.8));
+      var lyricDuration = currentLyricDurationSeconds();
+      var nextT = nextLine && nextLine.t > line.t ? nextLine.t : Math.min(lyricDuration || now + 4, line.t + (line.duration || 4.8));
       var span = Math.max(0.75, nextT - line.t);
       var prog = Math.max(0, Math.min(1, (now - line.t) / span));
       return prog * prog * (3 - 2 * prog);
+    }
+
+    function currentLyricClock() {
+      if (window.SpotifyIntegration && typeof window.SpotifyIntegration.isCurrent === 'function' && window.SpotifyIntegration.isCurrent()) {
+        return {
+          active: true,
+          time: window.SpotifyIntegration.currentSeconds ? Math.max(0, Number(window.SpotifyIntegration.currentSeconds()) || 0) : 0,
+          duration: window.SpotifyIntegration.durationSeconds ? Math.max(0, Number(window.SpotifyIntegration.durationSeconds()) || 0) : 0,
+          provider: 'spotify'
+        };
+      }
+      if (audio) {
+        return {
+          active: true,
+          time: isFinite(audio.currentTime) ? Math.max(0, Number(audio.currentTime) || 0) : 0,
+          duration: isFinite(audio.duration) ? Math.max(0, Number(audio.duration) || 0) : 0,
+          provider: 'audio'
+        };
+      }
+      return { active: false, time: 0, duration: 0, provider: '' };
+    }
+
+    function currentLyricDurationSeconds() {
+      var clock = currentLyricClock();
+      return clock && clock.duration || 0;
+    }
+
+    function showCurrentLyricFallbackLine() {
+      var introText = currentLyricFallbackText();
+      if (!introText) {
+        clearStageLyrics();
+        return false;
+      }
+      if (stageLyrics.currentIdx !== -2 || stageLyrics.currentText !== introText) {
+        stageLyrics.currentIdx = -2;
+        showStageLine(introText);
+      }
+      if (stageLyrics.current) {
+        var clock = currentLyricClock();
+        var duration = clock.duration || 4.8;
+        var introLine = { t: 0, text: introText, duration: Math.max(0.8, Math.min(duration, 4.8)), charCount: Math.max(1, introText.length), fallback: true };
+        updateLyricMeshProgress(stageLyrics.current, getLyricLineProgress(introLine, null, clock.time || 0));
+      }
+      return true;
     }
 
     function tickLyricsParticles() {
@@ -18800,7 +19084,13 @@ void main(){
         if (stageLyrics.current || stageLyrics.currentText || (stageLyrics.outgoing && stageLyrics.outgoing.length)) clearStageLyrics();
         return;
       }
-      if (!playing || !audio || !lyricsLines.length) {
+      var lyricClock = currentLyricClock();
+      if (!lyricsLines.length) {
+        showCurrentLyricFallbackLine();
+        return;
+      }
+      if (!lyricClock.active) {
+        if (showCurrentLyricFallbackLine()) return;
         if (stageLyrics.current) {
           stageLyrics.current.userData.state = 'out';
           stageLyrics.current.userData.age = 0;
@@ -18811,27 +19101,13 @@ void main(){
         }
         return;
       }
-      var t = audio.currentTime;
+      var t = lyricClock.time;
       var newIdx = -1;
       for (var i = 0; i < lyricsLines.length; i++) {
         if (lyricsLines[i].t <= t + 0.05) newIdx = i; else break;
       }
       if (newIdx < 0) {
-        var introText = currentLyricFallbackText();
-        if (!introText) {
-          clearStageLyrics();
-          return;
-        }
-        if (stageLyrics.currentIdx !== -2 || stageLyrics.currentText !== introText) {
-          stageLyrics.currentIdx = -2;
-          showStageLine(introText);
-        }
-        if (stageLyrics.current) {
-          var firstLine = lyricsLines[0];
-          var introEnd = firstLine && firstLine.t > 0 ? firstLine.t : Math.min((audio && audio.duration) || 4.8, 4.8);
-          var introLine = { t: 0, text: introText, duration: Math.max(0.8, introEnd), charCount: Math.max(1, introText.length), fallback: true };
-          updateLyricMeshProgress(stageLyrics.current, getLyricLineProgress(introLine, null, t));
-        }
+        showCurrentLyricFallbackLine();
         return;
       }
       if (newIdx !== stageLyrics.currentIdx) {
@@ -22534,6 +22810,16 @@ void main(){
       }
 
       function currentItems() {
+        // 优先显示正在播放的队列 (当前歌曲 + 接下来播放), 而不是歌单库列表;
+        // 歌单库仍可通过左侧 "歌单/队列" 面板的 "我的歌单" 标签浏览。
+        if (playQueue.length) {
+          return playQueue.map(function (song, idx) {
+            return {
+              type: 'queue', title: song.name, sub: song.artist || '未知歌手',
+              cover: songCoverSrc(song, 360), tag: idx === currentIdx ? '正在播放' : ('#' + (idx + 1)), queueIndex: idx
+            };
+          });
+        }
         if (hasAnyPlatformLogin() && (userPlaylists.length || myPodcastCollections.length)) {
           var source = activePlaylists();
           var items = source.map(function (pl) {
@@ -22550,14 +22836,6 @@ void main(){
             });
           }
           if (items.length) return items;
-        }
-        if (playQueue.length) {
-          return playQueue.map(function (song, idx) {
-            return {
-              type: 'queue', title: song.name, sub: song.artist || '未知歌手',
-              cover: songCoverSrc(song, 360), tag: idx === currentIdx ? '正在播放' : ('#' + (idx + 1)), queueIndex: idx
-            };
-          });
         }
         return [];
       }
@@ -23057,6 +23335,13 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       }
 
       function sig(items) {
+        if (playQueue.length) {
+          items = items || playQueue.map(function (song, idx) {
+            return { type: 'queue', title: song.name, queueIndex: idx };
+          });
+          var sample = items.slice(0, 3).concat(items.slice(Math.max(3, items.length - 3)));
+          return ['queue', items.length, currentIdx, sample.map(function (it) { return [it.type, it.playlistId || '', it.queueIndex || '', it.title || ''].join('|'); }).join('||')].join('::');
+        }
         if (hasAnyPlatformLogin() && (userPlaylists.length || myPodcastCollections.length)) {
           var source = activePlaylists();
           items = items || currentItems();
@@ -23073,11 +23358,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
             }).join('||')
           ].join('::');
         }
-        items = items || playQueue.map(function (song, idx) {
-          return { type: 'queue', title: song.name, queueIndex: idx };
-        });
-        var sample = items.slice(0, 3).concat(items.slice(Math.max(3, items.length - 3)));
-        return ['queue', items.length, currentIdx, sample.map(function (it) { return [it.type, it.playlistId || '', it.queueIndex || '', it.title || ''].join('|'); }).join('||')].join('::');
+        return 'empty';
       }
 
       function switchPane(nextPane) {
@@ -25099,7 +25380,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       }
       if (!tiles.length) tiles = fallbackHomeTiles();
       tiles = tiles.slice(0, 5);
-      if (title) title.textContent = homeRecent ? '接着听' : (loggedOutHome ? '先从这里开始' : '你的歌单与推荐');
+      if (title) title.textContent = homeRecent ? '接着听' : (loggedOutHome ? '先从这里开始' : '为你推荐');
       if (note) {
         var liveNote = homeDiscoverState.updatedAt ? '刚刚更新 · 点击即可播放' : '点击即可播放';
         note.textContent = homeDiscoverState.loading ? '正在整理推荐' : (loggedOutHome && !weatherSongs.length ? '不会自动拉取外部推荐' : (homeDiscoverState.error ? '离线精选' : liveNote));
@@ -25141,11 +25422,12 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       var cardSongB = homeDiscoverState.songs[1] || homeDiscoverState.songs[0];
       var cardSongC = homeDiscoverState.songs[2] || homeDiscoverState.songs[0];
       var playlistItem = homeDiscoverState.playlists[0];
+      var nowPlayingSong = currentCoverSong ? currentCoverSong() : null;
       var recentSong = homeDiscoverState.recent[0] || null;
       var recent = recentSong ? Object.assign({}, recentSong, { source: 'Spotify', sourceKey: 'spotify', provider: 'spotify', type: 'spotify' }) : summary.recent;
       var topArtist = homeDiscoverState.topArtists[0] || summary.topArtist;
-      setHomeCardText('home-weather-card-title', '我的歌单');
-      setHomeCardText('home-weather-card-sub', homeDiscoverState.loggedIn ? (homeDiscoverState.playlists.length ? homeDiscoverState.playlists.length + ' 个 Spotify 歌单' : '打开 Spotify 歌单库') : '连接 Spotify 后显示歌单');
+      setHomeCardText('home-weather-card-title', nowPlayingSong ? (nowPlayingSong.name || '正在播放') : '正在播放');
+      setHomeCardText('home-weather-card-sub', nowPlayingSong ? (nowPlayingSong.artist || songSourceLabel(nowPlayingSong)) : (homeDiscoverState.loggedIn ? '播放一首歌后这里会显示当前歌曲' : '连接 Spotify 后显示当前歌曲'));
       setHomeCardText('home-daily-title', cardSongA && cardSongA.name || '每日推荐');
       setHomeCardText('home-daily-sub', cardSongA ? (cardSongA.artist || 'Spotify') : '从 Spotify 喜欢的音乐开始');
       setHomeCardText('home-private-title', cardSongB && cardSongB.name || '推荐歌曲');
@@ -25156,7 +25438,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       setHomeCardText('home-profile-sub', topArtist ? (topArtist.plays ? ('常听歌手 · ' + topArtist.plays + ' 次') : 'Spotify 常听歌手') : '播放 Spotify 后生成偏好');
       setHomeCardText('home-library-title', playlistItem && playlistItem.name || '更多歌曲');
       setHomeCardText('home-library-sub', playlistItem ? ((playlistItem.trackCount || 0) + ' 首 · Spotify 歌单') : '打开 Spotify 歌单或喜欢的音乐');
-      setHomeArt('home-weather-art', playlistItem && playlistItem.cover || cardSongA && cardSongA.cover || recent && recent.cover, 280);
+      setHomeArt('home-weather-art', nowPlayingSong && songCoverSrc(nowPlayingSong, 360) || playlistItem && playlistItem.cover || cardSongA && cardSongA.cover || recent && recent.cover, 280);
       setHomeArt('home-daily-art', cardSongA && cardSongA.cover || playlistItem && playlistItem.cover, 280);
       setHomeArt('home-private-art', cardSongB && cardSongB.cover || cardSongA && cardSongA.cover, 280);
       setHomeArt('home-continue-art', recent && recent.cover || cardSongA && cardSongA.cover, 280);
@@ -25660,6 +25942,19 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       }
       loadPodcastRadioIntoQueue(item.id, true, item.name || '');
     }
+    function openHomeNowPlayingOrLibrary() {
+      var song = currentCoverSong ? currentCoverSong() : null;
+      if (song) {
+        dismissHomePage({ toast: false });
+        if (currentIdx >= 0) {
+          safeRenderQueuePanel('home-now-playing', { scrollCurrent: true, deferWhenHidden: false });
+          safeShelfRebuild('home-now-playing', true);
+        }
+        showToast('正在播放: ' + (song.name || '当前歌曲'));
+        return;
+      }
+      openHomeLibrary();
+    }
     function openHomeThirdCard() {
       if (!hasAnyPlatformLogin() && !homeDiscoverState.loggedIn) {
         openHomeLocalImport();
@@ -25813,7 +26108,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
         return;
       }
       var song = songFromListenRecord(record);
-      if (!song || (!song.id && !song.mid)) {
+      if (!song || (!song.id && !song.mid && !song.uri)) {
         runHomeSearch(record.name || '');
         return;
       }
@@ -25867,7 +26162,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       if (!item) return;
       if (item.kind === 'weatherSong') playWeatherSong(item.index);
       else if (item.kind === 'recent') playHomeRecent(item.record);
-      else if (item.kind === 'profile') openHomeInsight();
+      else if (item.kind === 'profile') runHomeSearch(item.query || item.title || '');
       else if (item.kind === 'song') playHomeSong(item.index);
       else if (item.kind === 'login') showLoginModal({ source: 'home-tile' });
       else if (item.kind === 'local') openHomeLocalImport();
@@ -25876,6 +26171,10 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       else if (item.kind === 'podcast') openHomePodcast(item.index);
       else if (item.kind === 'podcastSearch') { setSearchMode('podcast'); loadPodcastHot(); }
       else if (item.kind === 'library') openHomeLibrary();
+      else if (item.kind === 'search') {
+        if (!homeDiscoverState.loggedIn) showLoginModal({ source: 'home-search-tile' });
+        else runHomeSearch(item.query || '');
+      }
       else runHomeSearch(item.query || item.title || '');
     }
     function currentCoverSong() {
@@ -26386,7 +26685,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       var customBtn = document.getElementById('lyric-source-custom');
       if (originalBtn) {
         originalBtn.classList.toggle('active', lyricSourceMode !== 'custom');
-        originalBtn.title = '使用网易云或本地解析歌词';
+        originalBtn.title = '使用在线匹配或本地解析歌词';
       }
       if (customBtn) {
         customBtn.classList.toggle('active', lyricSourceMode === 'custom');
@@ -27508,15 +27807,30 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       }
     }
 
+    function syncExternalVolumeFromSpotify(value) {
+      var next = Math.max(0, Math.min(1, Number(value) || 0));
+      if (Math.abs(next - targetVolume) < 0.005) return;
+      targetVolume = next;
+      if (next > 0.01) lastNonZeroVolume = next;
+      try { localStorage.setItem('apex-player-volume', String(next)); } catch (e) { }
+      applyVolumeToAudio();
+      updateVolumeUi();
+    }
+
     function setVolume(value, silent) {
       var next = Math.max(0, Math.min(1, Number(value) || 0));
       targetVolume = next;
       if (next > 0.01) lastNonZeroVolume = next;
       try { localStorage.setItem('apex-player-volume', String(next)); } catch (e) { }
       applyVolumeToAudio();
+      // 本地 <audio>/gainNode 不会影响 Spotify Connect 播放的实际音量, 需要单独转发。
+      if (window.SpotifyIntegration && window.SpotifyIntegration.isCurrent() && typeof window.SpotifyIntegration.setVolume === 'function') {
+        window.SpotifyIntegration.setVolume(next);
+      }
       updateVolumeUi();
       if (!silent) showToast('音量 ' + Math.round(next * 100) + '%');
     }
+    window.syncExternalVolumeFromSpotify = syncExternalVolumeFromSpotify;
     function adjustVolumeByKeyboard(delta) {
       var step = Number(delta) || 0;
       if (!step) return;
@@ -28010,6 +28324,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
             if (opts.spotifySyncOnly) {
               hideLoading();
               recordSpotifyListenNow(song);
+              safePlaybackStep('spotify-sync-lyrics', function () { fetchLyric(song, token); });
               forcePlaybackControlsInteractive();
               return;
             }
@@ -28019,9 +28334,19 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
               .map(function (s) { return s && s.uri; })
               .filter(function (uri) { return uri && uri.indexOf('spotify:track:') === 0; })
               .slice(0, 50);
+            var spotifyContextUri = opts.spotifyContextUri || song.spotifyContextUri || (playbackContext && playbackContext.spotifyContextUri) || '';
+            var spotifyContextOffset = opts.spotifyContextOffset != null
+              ? Number(opts.spotifyContextOffset)
+              : (song.spotifyContextIndex != null ? Number(song.spotifyContextIndex) : idx);
 
-            await window.SpotifyIntegration.prepareTrack(song, spotifyUris);
+            await window.SpotifyIntegration.prepareTrack(song, spotifyUris, {
+              contextUri: spotifyContextUri,
+              offset: isFinite(spotifyContextOffset) ? Math.max(0, Math.floor(spotifyContextOffset)) : idx
+            });
             recordSpotifyListenNow(song);
+            safePlaybackStep('spotify-lyrics-fetch', function () { fetchLyric(song, token); });
+            safeRenderQueuePanel('spotify-play-queue-at');
+            scheduleShelfRebuild('spotify-play-queue-at', true);
             return;
           }
           if (window.SpotifyIntegration) window.SpotifyIntegration.deactivate();
@@ -28394,8 +28719,41 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       var idx = modes.indexOf(playMode);
       playMode = modes[(idx + 1) % modes.length];
       updatePlayModeButton(true);
+      if (window.SpotifyIntegration && window.SpotifyIntegration.isCurrent && window.SpotifyIntegration.isCurrent() && typeof window.SpotifyIntegration.setPlaybackMode === 'function') {
+        window.SpotifyIntegration.setPlaybackMode(playMode);
+      }
       showToast('播放模式: ' + playModeLabel(playMode));
     }
+    function currentPlayMode() {
+      return playMode;
+    }
+    function syncSpotifyPlaybackMode(state) {
+      state = state || {};
+      var next = playMode;
+      if (state.repeatState === 'track') next = 'single';
+      else if (state.shuffleState) next = 'shuffle';
+      else if (state.repeatState === 'context') next = 'loop';
+      if (next !== playMode) {
+        playMode = next;
+        updatePlayModeButton(false);
+      }
+    }
+    window.currentPlayMode = currentPlayMode;
+    window.syncSpotifyPlaybackMode = syncSpotifyPlaybackMode;
+    function bindPlayModeControl() {
+      var btn = document.getElementById('play-mode-btn');
+      if (!btn || btn.dataset.modeClickBound === '1') return;
+      btn.dataset.modeClickBound = '1';
+      btn.onclick = null;
+      btn.addEventListener('click', function (e) {
+        if (e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        cyclePlayMode();
+      });
+    }
+    bindPlayModeControl();
     updatePlayModeButton(false);
 
     var controlGlassState = { key: '', searchBoxKey: '', searchPillKey: '' };
@@ -28615,16 +28973,12 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
     async function fetchLyric(songOrId, token) {
       try {
         var song = (songOrId && typeof songOrId === 'object') ? songOrId : null;
-        var provider = songProviderKey(song);
-        var endpoint;
-        if (provider === 'qq') {
-          var mid = song.mid || song.songmid || song.id || '';
-          var qqId = song.qqId || (/^\d+$/.test(String(song.id || '')) ? song.id : '');
-          endpoint = '/api/qq/lyric?mid=' + encodeURIComponent(mid) + '&id=' + encodeURIComponent(qqId);
-        } else {
-          var songId = song ? song.id : songOrId;
-          endpoint = '/api/lyric?id=' + encodeURIComponent(songId);
-        }
+        // 网易云/QQ 的按 id 查歌词接口已停用; 改为按歌名+歌手(+时长)统一查询,
+        // 对 Spotify 歌曲和本地歌曲都适用。
+        var name = (song && song.name) || '';
+        var artist = (song && song.artist) || '';
+        var durationSec = song ? Math.round(playbackDurationFromSong(song) || 0) : 0;
+        var endpoint = '/api/lyric?name=' + encodeURIComponent(name) + '&artist=' + encodeURIComponent(artist) + (durationSec ? '&duration=' + durationSec : '');
         var r = await apiJson(endpoint);
         if (token !== trackSwitchToken) return;
         var nativeLines = parseYrcText(r.yrc || '');
@@ -28730,6 +29084,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
     function renderLyrics() {
       // v8: 歌词渲染由 stageLyrics 在每帧 tickLyricsParticles 里推动
       clearStageLyrics();
+      if (fx && fx.particleLyrics) requestAnimationFrame(tickLyricsParticles);
     }
     function toggleLyricsPanel(force) {
       if (force === false) fx.particleLyrics = false;
@@ -28737,6 +29092,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       else fx.particleLyrics = !fx.particleLyrics;
       if (fx.particleLyrics) {
         createLyricsParticles();
+        tickLyricsParticles();
         showToast('歌词已开启');
       } else {
         clearStageLyrics();
@@ -28744,6 +29100,21 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       }
       lyricsVisible = fx.particleLyrics;
     }
+    function bindLyricsToggleControl() {
+      document.querySelectorAll('.lyrics-toggle-btn').forEach(function (btn) {
+        if (!btn || btn.dataset.lyricClickBound === '1') return;
+        btn.dataset.lyricClickBound = '1';
+        btn.onclick = null;
+        btn.addEventListener('click', function (e) {
+          if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+          toggleLyricsPanel();
+        });
+      });
+    }
+    bindLyricsToggleControl();
     function updateLyricsHighlight() { /* v8: 由 tickLyricsParticles 接管 */ }
 
     // ============================================================
@@ -29402,6 +29773,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
 
       var sid = String(id || '').trim();
       var r = null;
+      var spotifyContextUri = '';
 
       try {
         if (sid === 'spotify:liked' || sid === 'liked' || /喜欢的音乐|liked/i.test(String(title || ''))) {
@@ -29414,6 +29786,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
             .replace(/^playlist:/, '')
             .split('?')[0]
             .trim();
+          spotifyContextUri = sid ? ('spotify:playlist:' + sid) : '';
 
           r = await apiJson('/api/spotify/library/playlist-tracks?id=' + encodeURIComponent(sid));
         }
@@ -29430,7 +29803,14 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
         var tracks = r.tracks || r.songs || [];
         if (!tracks.length) { showToast('歌单为空'); return; }
 
-        playQueue = tracks.map(cloneSong);
+        playQueue = tracks.map(function (song, index) {
+          song = cloneSong(song);
+          if (song && spotifyContextUri) {
+            song.spotifyContextUri = spotifyContextUri;
+            song.spotifyContextIndex = index;
+          }
+          return song;
+        }).filter(Boolean);
         currentIdx = 0;
 
         safeRenderQueuePanel('spotify-playlist-load');
@@ -29440,7 +29820,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
 
         if (autoplay) {
           try {
-            await playQueueAt(0);
+            await playQueueAt(0, spotifyContextUri ? { spotifyContextUri: spotifyContextUri, spotifyContextOffset: 0 } : undefined);
           } catch (playErr) {
             console.warn('[SpotifyPlaylistAutoplay]', id, playErr);
             showToast('歌单已载入，播放启动失败');
@@ -29817,6 +30197,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
         controlGlassChromaticOffset: archiveNumber(raw, 'controlGlassChromaticOffset', fxDefaults.controlGlassChromaticOffset, 0, 140),
         backgroundColorCustom: raw.backgroundColorMode === 'custom' || !!raw.backgroundColorCustom,
         floatLayer: !!raw.floatLayer,
+        playingAura: raw.playingAura !== false,
         cinema: raw.cinema !== false,
         edge: !!raw.edge,
         aiDepth: !!raw.aiDepth,
@@ -31108,6 +31489,8 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       document.getElementById('t-float').classList.toggle('on', fx.floatLayer);
       var floatToggle = document.getElementById('t-float');
       if (floatToggle) floatToggle.classList.toggle('on', fx.floatLayer);
+      var playingAuraToggle = document.getElementById('t-playingAura');
+      if (playingAuraToggle) playingAuraToggle.classList.toggle('on', fx.playingAura !== false);
       document.getElementById('t-cinema').classList.toggle('on', fx.cinema);
       var lyricGlowToggle = document.getElementById('t-lyricGlow');
       if (lyricGlowToggle) lyricGlowToggle.classList.toggle('on', fx.lyricGlow);
@@ -32001,7 +32384,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       var toggle = document.getElementById(toggleId);
       if (toggle) toggle.classList.toggle('on', fx[key]);
       syncFxUniforms();
-      if (key === 'lyricCameraLock' || key === 'lyricGlow' || key === 'lyricGlowBeat' || key === 'lyricGlowParticles' || key === 'bloom' || key === 'edge' || key === 'cinema' || key === 'desktopLyrics' || key === 'desktopLyricsClickThrough' || key === 'desktopLyricsCinema' || key === 'desktopLyricsHighlight' || key === 'wallpaperMode' || key === 'shelfShowPodcasts' || key === 'shelfMergeCollections' || key === 'liveBackgroundKeep') saveLyricLayout();
+      if (key === 'lyricCameraLock' || key === 'lyricGlow' || key === 'lyricGlowBeat' || key === 'lyricGlowParticles' || key === 'playingAura' || key === 'bloom' || key === 'edge' || key === 'cinema' || key === 'desktopLyrics' || key === 'desktopLyricsClickThrough' || key === 'desktopLyricsCinema' || key === 'desktopLyricsHighlight' || key === 'wallpaperMode' || key === 'shelfShowPodcasts' || key === 'shelfMergeCollections' || key === 'liveBackgroundKeep') saveLyricLayout();
       if (key === 'floatLayer') { if (fx.floatLayer) createFloatLayer(); else destroyFloatLayer(); }
       if (key === 'desktopLyrics') applyDesktopLyricsState(true);
       if (key === 'desktopLyricsClickThrough' || key === 'desktopLyricsCinema' || key === 'desktopLyricsHighlight') pushDesktopLyricsState(true);
@@ -32025,6 +32408,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       }
       if (key === 'lyricGlow') showToast(fx.lyricGlow ? '歌词溢光已开启' : '歌词溢光已关闭');
       if (key === 'lyricGlowBeat') showToast(fx.lyricGlowBeat ? '歌词溢光跟随鼓点' : '歌词溢光已脱离鼓点');
+      if (key === 'playingAura') showToast(fx.playingAura !== false ? '播放气场已开启' : '播放气场已关闭');
       if (key === 'lyricGlowParticles') showToast(fx.lyricGlowParticles ? '歌词光粒已开启' : '歌词光粒已关闭');
       if (key === 'desktopLyrics') showToast(fx.desktopLyrics ? '桌面歌词已开启' : '桌面歌词已关闭');
       if (key === 'desktopLyricsClickThrough') showToast(fx.desktopLyricsClickThrough !== false ? '桌面歌词已锁定' : '桌面歌词可移动');
@@ -36449,6 +36833,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
 
       updateRipples(dt);
       updateFloatLayer(dt);
+      updatePlayingAuraLayer(dt);
       if (shelfManager) shelfManager.update(dt);
       tickLyricsParticles();
       updateHomeAudioVisual(dt);

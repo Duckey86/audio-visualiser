@@ -256,9 +256,25 @@
     if (!isCurrent()) return;
     window.playing = !!state.playback.isPlaying;
     if (typeof window.setPlayIcon === 'function') window.setPlayIcon(window.playing);
+    if (state.playback.volumePercent != null && typeof window.syncExternalVolumeFromSpotify === 'function') {
+      window.syncExternalVolumeFromSpotify(state.playback.volumePercent / 100);
+    }
+    if ((state.playback.repeatState || state.playback.shuffleState != null) && typeof window.syncSpotifyPlaybackMode === 'function') {
+      window.syncSpotifyPlaybackMode({
+        repeatState: state.playback.repeatState || 'off',
+        shuffleState: !!state.playback.shuffleState,
+      });
+    }
     var note = document.getElementById('spotify-device-note');
     if (note && state.playback.device) note.textContent = '当前设备：' + state.playback.device.name + ' · ' + (state.playback.device.type || 'Spotify Connect');
     updateProgress();
+  }
+
+  function modePayload(mode) {
+    mode = String(mode || 'loop').toLowerCase();
+    if (mode === 'shuffle') return { mode: 'shuffle', shuffleState: true, repeatState: 'context' };
+    if (mode === 'single') return { mode: 'single', shuffleState: false, repeatState: 'track' };
+    return { mode: 'loop', shuffleState: false, repeatState: 'context' };
   }
 
   async function pollPlayback(silent) {
@@ -286,6 +302,7 @@
       return false;
     }
     state.currentSong = song;
+    var mode = typeof window.currentPlayMode === 'function' ? window.currentPlayMode() : 'loop';
     document.body.classList.add('spotify-source-active');
     state.playback = { active: true, isPlaying: true, progressMs: 0, durationMs: Number(song.durationMs || song.duration) || 0 };
     state.playbackAt = Date.now();
@@ -293,7 +310,7 @@
     if (typeof window.setPlayIcon === 'function') window.setPlayIcon(true);
     try {
       uris = Array.isArray(uris) && uris.length ? uris : [song.uri];
-      await post('/api/spotify/player/play', { uris: uris, positionMs: 0 });
+      await post('/api/spotify/player/play', Object.assign({ uris: uris, positionMs: 0 }, modePayload(mode)));
       if (typeof window.hideLoading === 'function') window.hideLoading();
       toast('已发送到 Spotify Connect · 使用环境视觉');
       startPolling();
@@ -358,6 +375,41 @@
     return Math.max(0, Number(state.playback.durationMs) || Number(state.currentSong && (state.currentSong.durationMs || state.currentSong.duration)) || 0) / 1000;
   }
 
+  // 本地音量滑条只控制本地 <audio>/gainNode, 不会影响 Spotify Connect 设备的实际音量。
+  // 这里把音量转发到 Connect 设备; 拖动滑条时做防抖, 避免每个像素都发一次请求。
+  var volumeDebounceTimer = 0;
+  var pendingVolumePercent = null;
+  function setVolume(value) {
+    if (!isCurrent()) return false;
+    var percent = Math.max(0, Math.min(100, Math.round(Number(value) * 100)));
+    pendingVolumePercent = percent;
+    if (volumeDebounceTimer) return true;
+    volumeDebounceTimer = setTimeout(function () {
+      volumeDebounceTimer = 0;
+      var target = pendingVolumePercent;
+      pendingVolumePercent = null;
+      if (target == null) return;
+      post('/api/spotify/player/volume', { volumePercent: target }).catch(function (error) {
+        // 不少 Spotify Connect 设备 (尤其手机) 不支持远程调音量, 静默失败避免打扰用户。
+        console.warn('[Spotify] setVolume failed:', error.message);
+      });
+    }, 260);
+    return true;
+  }
+
+  async function setPlaybackMode(mode) {
+    if (!isCurrent()) return false;
+    try {
+      await post('/api/spotify/player/mode', modePayload(mode));
+      state.playback.shuffleState = mode === 'shuffle';
+      state.playback.repeatState = mode === 'single' ? 'track' : 'context';
+      return true;
+    } catch (error) {
+      toast(error.message);
+      return false;
+    }
+  }
+
   function deactivate() {
     state.currentSong = null;
     document.body.classList.remove('spotify-source-active');
@@ -373,6 +425,8 @@
     next: function () { return skip('next'); },
     previous: function () { return skip('previous'); },
     seek: seek,
+    setVolume: setVolume,
+    setPlaybackMode: setPlaybackMode,
     currentSeconds: currentSeconds,
     durationSeconds: durationSeconds,
     deactivate: deactivate,

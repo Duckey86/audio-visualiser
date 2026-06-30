@@ -1802,6 +1802,44 @@ async function requestJson(targetUrl, opts, body) {
   }
 }
 
+// 通用按歌名+歌手查询同步歌词, 替代已停用的网易云/QQ 按 id 查询;
+// 对 Spotify 歌曲和本地歌曲都适用。lrclib.net 免费且无需 API Key。
+const lrcLibCache = new Map();
+const LRCLIB_CACHE_MAX = 300;
+async function fetchLrcLibLyrics({ name, artist, album, durationSec }) {
+  const cacheKey = [name, artist, album, durationSec].join('::').toLowerCase();
+  if (lrcLibCache.has(cacheKey)) return lrcLibCache.get(cacheKey);
+  const params = new URLSearchParams();
+  params.set('track_name', name);
+  if (artist) params.set('artist_name', artist);
+  if (album) params.set('album_name', album);
+  if (durationSec) params.set('duration', String(durationSec));
+  let result = { syncedLyrics: '', plainLyrics: '' };
+  try {
+    const data = await requestJson('https://lrclib.net/api/get?' + params.toString(), {
+      headers: { 'User-Agent': 'Mineradio/1.1 (https://github.com/Duckey86/audio-visualiser)' },
+    });
+    result = { syncedLyrics: data.syncedLyrics || '', plainLyrics: data.plainLyrics || '' };
+  } catch (err) {
+    // 精确匹配失败 (常见于 404) 时退一步用 /api/search 模糊匹配取第一条结果。
+    try {
+      const searchParams = new URLSearchParams();
+      searchParams.set('track_name', name);
+      if (artist) searchParams.set('artist_name', artist);
+      const list = await requestJson('https://lrclib.net/api/search?' + searchParams.toString(), {
+        headers: { 'User-Agent': 'Mineradio/1.1 (https://github.com/Duckey86/audio-visualiser)' },
+      });
+      const best = Array.isArray(list) ? list[0] : null;
+      if (best) result = { syncedLyrics: best.syncedLyrics || '', plainLyrics: best.plainLyrics || '' };
+    } catch (searchErr) {
+      // 两次都失败就返回空歌词, 前端会自动回退为静态标题展示。
+    }
+  }
+  if (lrcLibCache.size >= LRCLIB_CACHE_MAX) lrcLibCache.delete(lrcLibCache.keys().next().value);
+  lrcLibCache.set(cacheKey, result);
+  return result;
+}
+
 function clampNumber(value, min, max, fallback) {
   if (value === null || value === undefined || value === '') return fallback;
   const n = Number(value);
@@ -3279,13 +3317,30 @@ const server = http.createServer(async (req, res) => {
     pn === '/api/discover/home' ||
     pn === '/api/user/playlists' ||
     pn === '/api/artist/detail' ||
-    pn === '/api/lyric' ||
     pn === '/api/weather/radio';
   if (legacyMusicRoute) {
     sendJSON(res, {
       error: 'LEGACY_PROVIDER_DISABLED',
       message: '网易云与 QQ 音乐接口已停用，请使用 Spotify 或本地音乐',
     }, 410);
+    return;
+  }
+
+  if (pn === '/api/lyric') {
+    try {
+      const name = (url.searchParams.get('name') || '').trim();
+      const artist = (url.searchParams.get('artist') || '').trim();
+      const album = (url.searchParams.get('album') || '').trim();
+      const durationSec = parseInt(url.searchParams.get('duration') || '', 10) || 0;
+      if (!name) {
+        sendJSON(res, { lyric: '', yrc: '' });
+        return;
+      }
+      const lrcResult = await fetchLrcLibLyrics({ name, artist, album, durationSec });
+      sendJSON(res, { lyric: lrcResult.syncedLyrics || '', plain: lrcResult.plainLyrics || '', yrc: '' });
+    } catch (err) {
+      sendJSON(res, { lyric: '', yrc: '', error: err.message || 'LYRIC_LOOKUP_FAILED' });
+    }
     return;
   }
 

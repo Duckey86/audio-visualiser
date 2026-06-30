@@ -75,6 +75,17 @@
 
 ## 已完成工作日志
 
+### 2026-06-30
+
+- 修复 Spotify-only 版本的播放控制接线问题：新增 `/api/spotify/player/volume` 和 `/api/spotify/player/mode`，播放时不再强制把 Spotify shuffle/repeat 重置为关闭。
+- 前端 `public/spotify-integration.js` 现在会把音量滑条转发到 Spotify Connect 设备，并按 Mineradio 的循环/随机/单曲循环按钮同步 Spotify shuffle/repeat；轮询播放状态时也会回写音量和模式 UI。
+- Home 首屏右侧卡片从“我的歌单”改为“正在播放”，有当前歌曲时显示当前歌名/歌手/封面；底部标题恢复为“为你推荐”，歌手/搜索/最近播放卡片点击路径更可靠。
+- Spotify 播放分支成功启动后会继续调用通用歌词匹配与自定义歌词流程，歌词按钮也加了直接事件绑定；旧“网易云或本地解析歌词”提示改为“在线匹配或本地解析歌词”。
+- 追修歌词回归：`tickLyricsParticles()` 原本写死依赖本地 `audio` 元素，Spotify Connect 没有本地音频所以会每帧清掉歌词；已改为通过 `currentLyricClock()` 自动选择 Spotify Connect 时间轴或本地 audio 时间轴，并在打开歌词/应用歌词时立即弹出当前行或当前歌名占位。
+- 追修右键歌单架/侧向镜头歌词越界：`updateStageLyrics3D()` 新增屏幕安全框兜底，按当前相机可视宽高、歌词世界尺寸和右侧歌单架占用动态缩小/挪回歌词，避免右键镜头右移时歌词跑出屏幕。
+- 新增默认开启的「播放气场」视觉层：播放时在主舞台后方生成封面色呼吸光环与星尘，随低频/鼓点轻微反应，并纳入本地布局和用户视觉存档；控制台可单独关闭。
+- 已通过 `node --check providers/spotify-provider.js`、`node --check public/spotify-integration.js`、`node --check server.js`、主页面内联脚本解析、`npm test`、`git diff --check`，并用本地浏览器确认 Home 文案和控件存在。真实 Spotify 设备音量/模式远程生效仍需用户授权账号和活跃 Connect 设备实测。
+
 ### 2026-06-29
 
 - 读取用户提供的 ChatGPT 分享对话，确认正式方向为稳定的 Spotify Connect + 环境视觉；Librespot 仅属于实验方案，不进入主线。
