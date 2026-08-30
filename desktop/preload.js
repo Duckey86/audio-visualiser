@@ -57,6 +57,14 @@ window.addEventListener('DOMContentLoaded', () => {
     script.id = 'system-audio-dj-script';
     script.src = '/system-audio-dj.js';
     script.async = false;
+    script.addEventListener('load', () => {
+      if (document.getElementById('system-audio-dj-meter-script')) return;
+      const meterScript = document.createElement('script');
+      meterScript.id = 'system-audio-dj-meter-script';
+      meterScript.src = '/system-audio-dj-meter.js';
+      meterScript.async = false;
+      document.head.appendChild(meterScript);
+    }, { once: true });
     document.head.appendChild(script);
   }
 });
