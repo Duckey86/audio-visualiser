@@ -33,6 +33,7 @@
     meterBass: 0,
     meterMid: 0,
     meterHigh: 0,
+    albumBass: 0,
     beatPulse: 0,
     lastBeatAt: 0,
     beatIntervals: [],
@@ -54,6 +55,7 @@
       meterBass: 0,
       meterMid: 0,
       meterHigh: 0,
+      albumBass: 0,
       beat: 0,
       beatDetected: false,
       bpm: 0,
@@ -201,6 +203,7 @@
     state.meterBass = 0;
     state.meterMid = 0;
     state.meterHigh = 0;
+    state.albumBass = 0;
     state.beatPulse = 0;
     state.lastBeatAt = 0;
     state.beatIntervals = [];
@@ -220,6 +223,7 @@
       meterBass: 0,
       meterMid: 0,
       meterHigh: 0,
+      albumBass: 0,
       beat: 0,
       beatDetected: false,
       bpm: 0,
@@ -247,9 +251,6 @@
   function readLiveFrame(now, dt) {
     if (!state.analyser || !state.beatAnalyser || !state.freqData || !state.beatData) return null;
 
-    // The 1024 FFT beat analyser has essentially no analyser smoothing and is
-    // used for the kick envelope. The larger analyser remains available to the
-    // rest of Mineradio for detailed visuals.
     state.beatAnalyser.getByteFrequencyData(state.beatData);
     state.analyser.getByteFrequencyData(state.freqData);
 
@@ -258,7 +259,6 @@
     var rawTreble = bandAverage(state.freqData, state.analyser, 2600, 10500);
     var rawEnergy = spectrumEnergy(state.freqData);
 
-    // Track song loudness slowly so loud masters do not pin every bar at 100%.
     state.bassPeak = Math.max(rawBass, state.bassPeak * Math.exp(-dt * 0.52), 0.18);
     state.midPeak = Math.max(rawMid, state.midPeak * Math.exp(-dt * 0.34), 0.17);
     state.highPeak = Math.max(rawTreble, state.highPeak * Math.exp(-dt * 0.34), 0.14);
@@ -268,8 +268,6 @@
     var highLevel = dynamicLevel(rawTreble, state.highPeak, 0.020);
     var energyLevel = clamp01((rawEnergy - 0.025) / 0.38);
 
-    // Less jitter than the previous mapping: quick enough to feel live, but
-    // with a controlled release rather than changing size every tiny FFT tick.
     state.smoothBass = follow(state.smoothBass, bassLevel, dt, 30, 8.0);
     state.smoothMid = follow(state.smoothMid, midLevel, dt, 16, 5.2);
     state.smoothTreble = follow(state.smoothTreble, highLevel, dt, 19, 6.0);
@@ -279,9 +277,11 @@
     state.meterMid = follow(state.meterMid, midLevel, dt, 8, 3.2);
     state.meterHigh = follow(state.meterHigh, highLevel, dt, 9, 3.5);
 
-    // Adaptive STRONG-kick detector. A hit has to be clearly above the recent
-    // low-frequency baseline, rising, and separated from the previous hit.
-    // This intentionally ignores small bass movement so only real kicks pulse.
+    // Dedicated low-latency album envelope: it reaches most of a new bass peak
+    // in one rendered frame, then releases smoothly. This avoids making the
+    // visual wait for the slower diagnostic meter.
+    state.albumBass = follow(state.albumBass, bassLevel, dt, 68, 9.5);
+
     var meanBlend = rawBass > state.bassMean ? 0.010 : 0.034;
     state.bassMean += (rawBass - state.bassMean) * meanBlend;
     var deviation = Math.abs(rawBass - state.bassMean);
@@ -297,6 +297,12 @@
       + Math.max(0, z - 0.95) * 0.18
     );
 
+    // Decay the old pulse BEFORE checking the current frame. A newly detected
+    // kick therefore gets its full-strength pulse immediately instead of being
+    // reduced on the same frame it was detected.
+    state.beatPulse *= Math.exp(-dt * 22.0);
+    if (state.beatPulse < 0.002) state.beatPulse = 0;
+
     var beatDetected = false;
     var cooldown = 245;
     if (
@@ -309,14 +315,9 @@
       updateBpm(now);
       state.lastBeatAt = now;
       state.beatCount++;
-      state.beatPulse = Math.max(state.beatPulse, 0.78 + strongScore * 0.22);
+      state.beatPulse = Math.max(state.beatPulse, 0.82 + strongScore * 0.18);
       beatDetected = true;
     }
-
-    // Very short pulse so the visual hit lines up with the audible kick instead
-    // of glowing for several frames after it.
-    state.beatPulse *= Math.exp(-dt * 18.5);
-    if (state.beatPulse < 0.002) state.beatPulse = 0;
 
     var intensity = currentVisualIntensity();
     var bass = clamp01((state.smoothBass * 0.78 + state.beatPulse * 0.18) * intensity);
@@ -335,6 +336,7 @@
       meterBass: clamp01(state.meterBass * 0.92),
       meterMid: clamp01(state.meterMid * 0.78),
       meterHigh: clamp01(state.meterHigh * 0.78),
+      albumBass: clamp01(state.albumBass),
       beat: clamp01(state.beatPulse),
       beatDetected: beatDetected,
       bpm: state.bpm,
@@ -370,7 +372,6 @@
     setUniformValue('uEnergy', frame.energy, false);
     setUniformValue('uBeat', frame.beat, false);
 
-    // Only a strong kick is allowed to trigger the burst/glow path now.
     if (frame.beatDetected) setUniformValue('uBurstAmt', 0.42 + frame.beat * 0.20, true);
 
     window.__mineradioSystemAudioFrame = frame;
@@ -391,10 +392,9 @@
     var isAlbumPreset = preset < 0.5 || (preset > 3.5 && preset < 4.5);
     if (!isAlbumPreset) return;
 
-    // Continuous album breathing follows the stable bass envelope. Strong kicks
-    // add a short extra expansion. This is intentionally spatial instead of a
-    // full-screen white flash.
-    var scale = 1 + frame.meterBass * 0.040 + frame.beat * 0.036;
+    // Album motion uses the fast envelope, not the slow HUD meter. Strong kicks
+    // get an extra immediate punch; smaller bass still gives a subtle breath.
+    var scale = 1 + frame.albumBass * 0.036 + frame.beat * 0.048;
     try {
       if (typeof particles !== 'undefined' && particles && particles.scale) {
         particles.scale.setScalar(state.particleBaseScale * scale);
@@ -551,8 +551,6 @@
       document.body.appendChild(hud);
     }
 
-    // Remove the old full-screen border flash if an older version left it in
-    // the DOM. The replacement glow stays around the album only.
     var oldFlash = document.getElementById('system-audio-dj-beat-flash');
     if (oldFlash && oldFlash.parentNode) oldFlash.parentNode.removeChild(oldFlash);
 
@@ -582,7 +580,7 @@
         '.system-dj-meter i{display:block;height:4px;overflow:hidden;border-radius:999px;background:rgba(255,255,255,.10)}',
         '.system-dj-meter b{display:block;width:100%;height:100%;transform:scaleX(0);transform-origin:left center;background:rgba(255,255,255,.82);border-radius:inherit;will-change:transform}',
         '.system-dj-bpm{margin-top:7px;text-align:right;color:rgba(255,255,255,.68);font-variant-numeric:tabular-nums;font-size:9px}',
-        '#system-audio-dj-album-glow{position:fixed;z-index:1;left:50%;top:50%;width:min(42vw,42vh);height:min(42vw,42vh);border-radius:50%;pointer-events:none;opacity:0;transform:translate(-50%,-50%) scale(.94);background:radial-gradient(circle,rgba(255,255,255,.12) 0%,rgba(255,255,255,.055) 27%,rgba(255,255,255,0) 70%);filter:blur(12px);mix-blend-mode:screen;will-change:opacity,transform;transition:opacity 42ms linear}',
+        '#system-audio-dj-album-glow{position:fixed;z-index:1;left:50%;top:50%;width:min(42vw,42vh);height:min(42vw,42vh);border-radius:50%;pointer-events:none;opacity:0;transform:translate(-50%,-50%) scale(.94);background:radial-gradient(circle,rgba(255,255,255,.12) 0%,rgba(255,255,255,.055) 27%,rgba(255,255,255,0) 70%);filter:blur(12px);mix-blend-mode:screen;will-change:opacity,transform;transition:opacity 32ms linear}',
         '@keyframes systemDjHudHit{0%{filter:brightness(1.24);transform:translateX(-50%) scale(1.012)}100%{filter:brightness(1);transform:translateX(-50%) scale(1)}}'
       ].join('');
       document.head.appendChild(style);
@@ -701,10 +699,8 @@
       analyserSink.gain.value = 0;
       beatSink.gain.value = 0;
 
-      // Keep the main graph compatible with Mineradio's existing FFT buffers,
-      // but use a smaller zero-smoothing analyser for the visual kick detector.
       mainAnalyser.fftSize = Math.max(2048, Math.min(4096, Number(safeRead('FFT_SIZE', 2048)) || 2048));
-      mainAnalyser.smoothingTimeConstant = 0.08;
+      mainAnalyser.smoothingTimeConstant = 0.04;
       mainAnalyser.minDecibels = -96;
       mainAnalyser.maxDecibels = -8;
 
@@ -757,7 +753,7 @@
       document.body.classList.add('system-audio-dj-active');
       updateButton();
       startVisualLoop();
-      toast('V2.1 LIVE · album pulse uses bass · only strong kicks glow');
+      toast('V2.1 LIVE · low-latency album bass pulse enabled');
       return true;
     } catch (error) {
       state.starting = false;
