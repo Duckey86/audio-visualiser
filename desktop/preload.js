@@ -49,4 +49,14 @@ contextBridge.exposeInMainWorld('desktopWindow', {
 window.addEventListener('DOMContentLoaded', () => {
   document.documentElement.classList.add('desktop-shell-root');
   document.body.classList.add('desktop-shell');
+
+  // Keep the system-audio analyser out of the web build. The preload injects
+  // it only into the packaged Electron renderer where loopback capture exists.
+  if (!document.getElementById('system-audio-dj-script')) {
+    const script = document.createElement('script');
+    script.id = 'system-audio-dj-script';
+    script.src = '/system-audio-dj.js';
+    script.async = false;
+    document.head.appendChild(script);
+  }
 });
