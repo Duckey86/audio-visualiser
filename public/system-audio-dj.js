@@ -1,10 +1,6 @@
 (function () {
   'use strict';
 
-  // Mineradio system-audio DJ bridge.
-  // The live response mapping intentionally mirrors Mineradio v2.1.0's
-  // bass / mid / treble / beat / energy model so external Spotify Connect
-  // playback can drive the same style of visual reaction in this fork.
   var state = {
     active: false,
     starting: false,
@@ -22,31 +18,42 @@
     beatData: null,
     lastFrameAt: 0,
     lastHudAt: 0,
-    prevLow: 0,
-    lowMean: 0.08,
-    lowDeviation: 0.03,
+    analysisGain: 1.15,
+
+    bassMean: 0.075,
+    bassDev: 0.025,
+    bassPeak: 0.22,
+    midPeak: 0.20,
+    highPeak: 0.16,
+    prevBassRaw: 0,
     smoothBass: 0,
     smoothMid: 0,
     smoothTreble: 0,
     smoothEnergy: 0,
+    meterBass: 0,
+    meterMid: 0,
+    meterHigh: 0,
     beatPulse: 0,
     lastBeatAt: 0,
     beatIntervals: [],
     bpm: 0,
     bpmConfidence: 0,
     beatCount: 0,
-    analysisGain: 1.65,
+
+    particleBaseScale: 1,
+    bloomBaseScale: 1,
+
     frame: {
-      subBass: 0,
+      rawBass: 0,
+      rawMid: 0,
+      rawTreble: 0,
       bass: 0,
-      lowMid: 0,
       mid: 0,
-      highMid: 0,
-      presence: 0,
-      brilliance: 0,
-      air: 0,
       treble: 0,
       energy: 0,
+      meterBass: 0,
+      meterMid: 0,
+      meterHigh: 0,
       beat: 0,
       beatDetected: false,
       bpm: 0,
@@ -103,53 +110,6 @@
     } catch (_) {}
   }
 
-  function resetLiveAnalysis() {
-    state.prevLow = 0;
-    state.lowMean = 0.08;
-    state.lowDeviation = 0.03;
-    state.smoothBass = 0;
-    state.smoothMid = 0;
-    state.smoothTreble = 0;
-    state.smoothEnergy = 0;
-    state.beatPulse = 0;
-    state.lastBeatAt = 0;
-    state.beatIntervals = [];
-    state.bpm = 0;
-    state.bpmConfidence = 0;
-    state.beatCount = 0;
-    state.lastFrameAt = 0;
-    state.lastHudAt = 0;
-    state.frame = {
-      subBass: 0,
-      bass: 0,
-      lowMid: 0,
-      mid: 0,
-      highMid: 0,
-      presence: 0,
-      brilliance: 0,
-      air: 0,
-      treble: 0,
-      energy: 0,
-      beat: 0,
-      beatDetected: false,
-      bpm: 0,
-      bpmConfidence: 0,
-      rawEnergy: 0,
-      timestamp: 0,
-    };
-  }
-
-  function currentVisualIntensity() {
-    var intensity = 0.85;
-    try {
-      if (typeof fx !== 'undefined' && fx && Number.isFinite(Number(fx.intensity))) {
-        intensity = Number(fx.intensity);
-      }
-    } catch (_) {}
-    // Slightly stronger than stock so the system-audio route is visibly synced.
-    return clamp(intensity * 1.18, 0.35, 1.30);
-  }
-
   function follow(current, target, dt, attack, release) {
     var rate = target > current ? attack : release;
     var blend = 1 - Math.exp(-Math.max(0.001, dt) * rate);
@@ -167,11 +127,9 @@
     var total = 0;
     var weight = 0;
     for (var i = start; i <= end; i++) {
-      // Slight center weighting stops one noisy edge-bin dominating a band.
       var p = end === start ? 0.5 : (i - start) / (end - start);
-      var w = 0.82 + Math.sin(p * Math.PI) * 0.18;
-      var v = data[i] / 255;
-      total += v * w;
+      var w = 0.88 + Math.sin(p * Math.PI) * 0.12;
+      total += (data[i] / 255) * w;
       weight += w;
     }
     return weight > 0 ? total / weight : 0;
@@ -189,9 +147,9 @@
     return count ? Math.sqrt(sum / count) : 0;
   }
 
-  function shapeBand(value, floor, gain, gamma) {
-    var shaped = Math.max(0, Number(value) - floor) * gain;
-    return clamp01(Math.pow(clamp01(shaped), gamma));
+  function dynamicLevel(raw, peak, floor) {
+    var top = Math.max(floor + 0.08, peak);
+    return clamp01((raw - floor) / Math.max(0.08, top - floor));
   }
 
   function median(values) {
@@ -213,113 +171,171 @@
 
   function updateBpm(now) {
     if (!state.lastBeatAt) return;
-
     var gap = now - state.lastBeatAt;
-    if (gap >= 250 && gap <= 1500) {
+    if (gap >= 260 && gap <= 1400) {
       state.beatIntervals.push(gap);
-      if (state.beatIntervals.length > 12) state.beatIntervals.shift();
+      if (state.beatIntervals.length > 10) state.beatIntervals.shift();
     }
+    if (state.beatIntervals.length < 3) return;
 
-    if (state.beatIntervals.length >= 2) {
-      var center = median(state.beatIntervals);
-      var bpm = center > 0 ? 60000 / center : 0;
-      while (bpm > 185) bpm *= 0.5;
-      while (bpm > 0 && bpm < 68) bpm *= 2;
-      var spread = center > 0 ? standardDeviation(state.beatIntervals, center) / center : 1;
-      state.bpm = Math.round(bpm);
-      state.bpmConfidence = clamp01((state.beatIntervals.length / 7) * (1 - Math.min(0.8, spread * 2.4)));
-    }
+    var center = median(state.beatIntervals);
+    var bpm = center > 0 ? 60000 / center : 0;
+    while (bpm > 185) bpm *= 0.5;
+    while (bpm > 0 && bpm < 68) bpm *= 2;
+    var spread = center > 0 ? standardDeviation(state.beatIntervals, center) / center : 1;
+    state.bpm = Math.round(bpm);
+    state.bpmConfidence = clamp01((state.beatIntervals.length / 7) * (1 - Math.min(0.85, spread * 2.7)));
+  }
+
+  function resetLiveAnalysis() {
+    state.bassMean = 0.075;
+    state.bassDev = 0.025;
+    state.bassPeak = 0.22;
+    state.midPeak = 0.20;
+    state.highPeak = 0.16;
+    state.prevBassRaw = 0;
+    state.smoothBass = 0;
+    state.smoothMid = 0;
+    state.smoothTreble = 0;
+    state.smoothEnergy = 0;
+    state.meterBass = 0;
+    state.meterMid = 0;
+    state.meterHigh = 0;
+    state.beatPulse = 0;
+    state.lastBeatAt = 0;
+    state.beatIntervals = [];
+    state.bpm = 0;
+    state.bpmConfidence = 0;
+    state.beatCount = 0;
+    state.lastFrameAt = 0;
+    state.lastHudAt = 0;
+    state.frame = {
+      rawBass: 0,
+      rawMid: 0,
+      rawTreble: 0,
+      bass: 0,
+      mid: 0,
+      treble: 0,
+      energy: 0,
+      meterBass: 0,
+      meterMid: 0,
+      meterHigh: 0,
+      beat: 0,
+      beatDetected: false,
+      bpm: 0,
+      bpmConfidence: 0,
+      rawEnergy: 0,
+      timestamp: 0,
+    };
+  }
+
+  function currentPreset() {
+    try {
+      if (typeof fx !== 'undefined' && fx && Number.isFinite(Number(fx.preset))) return Number(fx.preset);
+    } catch (_) {}
+    return 0;
+  }
+
+  function currentVisualIntensity() {
+    var intensity = 0.85;
+    try {
+      if (typeof fx !== 'undefined' && fx && Number.isFinite(Number(fx.intensity))) intensity = Number(fx.intensity);
+    } catch (_) {}
+    return clamp(intensity, 0.35, 1.20);
   }
 
   function readLiveFrame(now, dt) {
-    if (!state.analyser || !state.freqData) return null;
+    if (!state.analyser || !state.beatAnalyser || !state.freqData || !state.beatData) return null;
+
+    // The 1024 FFT beat analyser has essentially no analyser smoothing and is
+    // used for the kick envelope. The larger analyser remains available to the
+    // rest of Mineradio for detailed visuals.
+    state.beatAnalyser.getByteFrequencyData(state.beatData);
     state.analyser.getByteFrequencyData(state.freqData);
 
-    var subBassRaw = bandAverage(state.freqData, state.analyser, 35, 90);
-    var bassRaw = bandAverage(state.freqData, state.analyser, 90, 180);
-    var lowMidRaw = bandAverage(state.freqData, state.analyser, 180, 420);
-    var midRaw = bandAverage(state.freqData, state.analyser, 420, 1400);
-    var highMidRaw = bandAverage(state.freqData, state.analyser, 1400, 3000);
-    var presenceRaw = bandAverage(state.freqData, state.analyser, 3000, 6000);
-    var brillianceRaw = bandAverage(state.freqData, state.analyser, 6000, 12000);
-    var airRaw = bandAverage(state.freqData, state.analyser, 12000, 19000);
+    var rawBass = bandAverage(state.beatData, state.beatAnalyser, 38, 175);
+    var rawMid = bandAverage(state.freqData, state.analyser, 240, 1600);
+    var rawTreble = bandAverage(state.freqData, state.analyser, 2600, 10500);
     var rawEnergy = spectrumEnergy(state.freqData);
 
-    var subBass = shapeBand(subBassRaw, 0.025, 2.75, 0.72);
-    var bassBand = shapeBand(bassRaw, 0.025, 2.55, 0.74);
-    var lowMid = shapeBand(lowMidRaw, 0.020, 2.20, 0.78);
-    var midBand = shapeBand(midRaw, 0.018, 2.00, 0.80);
-    var highMid = shapeBand(highMidRaw, 0.015, 1.90, 0.82);
-    var presence = shapeBand(presenceRaw, 0.012, 1.85, 0.84);
-    var brilliance = shapeBand(brillianceRaw, 0.010, 1.80, 0.86);
-    var air = shapeBand(airRaw, 0.008, 1.75, 0.88);
+    // Track song loudness slowly so loud masters do not pin every bar at 100%.
+    state.bassPeak = Math.max(rawBass, state.bassPeak * Math.exp(-dt * 0.52), 0.18);
+    state.midPeak = Math.max(rawMid, state.midPeak * Math.exp(-dt * 0.34), 0.17);
+    state.highPeak = Math.max(rawTreble, state.highPeak * Math.exp(-dt * 0.34), 0.14);
 
-    var lowDrive = clamp01(subBass * 0.68 + bassBand * 0.32);
-    var midDrive = clamp01(lowMid * 0.32 + midBand * 0.68);
-    var highDrive = clamp01(highMid * 0.20 + presence * 0.32 + brilliance * 0.34 + air * 0.14);
-    var energyDrive = shapeBand(rawEnergy, 0.020, 2.20, 0.78);
+    var bassLevel = dynamicLevel(rawBass, state.bassPeak, 0.030);
+    var midLevel = dynamicLevel(rawMid, state.midPeak, 0.025);
+    var highLevel = dynamicLevel(rawTreble, state.highPeak, 0.020);
+    var energyLevel = clamp01((rawEnergy - 0.025) / 0.38);
 
-    // Adaptive low-frequency onset detector. It intentionally favors a
-    // conspicuous kick pulse over subtlety because this mode is a visualizer.
-    var meanBlend = lowDrive > state.lowMean ? 0.012 : 0.040;
-    state.lowMean += (lowDrive - state.lowMean) * meanBlend;
-    var absDelta = Math.abs(lowDrive - state.lowMean);
-    state.lowDeviation += (absDelta - state.lowDeviation) * 0.035;
+    // Less jitter than the previous mapping: quick enough to feel live, but
+    // with a controlled release rather than changing size every tiny FFT tick.
+    state.smoothBass = follow(state.smoothBass, bassLevel, dt, 30, 8.0);
+    state.smoothMid = follow(state.smoothMid, midLevel, dt, 16, 5.2);
+    state.smoothTreble = follow(state.smoothTreble, highLevel, dt, 19, 6.0);
+    state.smoothEnergy = follow(state.smoothEnergy, energyLevel, dt, 15, 5.0);
 
-    var lowRise = Math.max(0, lowDrive - state.prevLow);
-    state.prevLow = lowDrive;
-    var ratio = lowDrive / Math.max(0.055, state.lowMean);
-    var beatScore = clamp01(
-      Math.max(0, ratio - 1.03) * 1.45
-      + lowRise * 3.20
-      + Math.max(0, lowDrive - state.lowMean - state.lowDeviation * 0.55) * 1.55
+    state.meterBass = follow(state.meterBass, bassLevel, dt, 11, 4.0);
+    state.meterMid = follow(state.meterMid, midLevel, dt, 8, 3.2);
+    state.meterHigh = follow(state.meterHigh, highLevel, dt, 9, 3.5);
+
+    // Adaptive STRONG-kick detector. A hit has to be clearly above the recent
+    // low-frequency baseline, rising, and separated from the previous hit.
+    // This intentionally ignores small bass movement so only real kicks pulse.
+    var meanBlend = rawBass > state.bassMean ? 0.010 : 0.034;
+    state.bassMean += (rawBass - state.bassMean) * meanBlend;
+    var deviation = Math.abs(rawBass - state.bassMean);
+    state.bassDev += (deviation - state.bassDev) * 0.030;
+
+    var rise = Math.max(0, rawBass - state.prevBassRaw);
+    state.prevBassRaw = rawBass;
+    var ratio = rawBass / Math.max(0.055, state.bassMean);
+    var z = (rawBass - state.bassMean) / Math.max(0.018, state.bassDev);
+    var strongScore = clamp01(
+      Math.max(0, ratio - 1.12) * 1.25
+      + rise * 3.6
+      + Math.max(0, z - 0.95) * 0.18
     );
 
-    var cooldown = 175;
     var beatDetected = false;
+    var cooldown = 245;
     if (
-      lowDrive > 0.13
-      && beatScore > 0.31
+      rawBass > 0.115
+      && ratio > 1.10
+      && rise > 0.010
+      && strongScore > 0.56
       && (!state.lastBeatAt || now - state.lastBeatAt >= cooldown)
     ) {
       updateBpm(now);
       state.lastBeatAt = now;
       state.beatCount++;
-      state.beatPulse = Math.max(state.beatPulse, 0.58 + beatScore * 0.42);
+      state.beatPulse = Math.max(state.beatPulse, 0.78 + strongScore * 0.22);
       beatDetected = true;
     }
 
-    // Punchy attack, slower release. This is the same role as the 2.1.0
-    // smoothBass/smoothMid/smoothTreb/smoothEnergy path.
-    state.smoothBass = follow(state.smoothBass, lowDrive, dt, 17, 5.2);
-    state.smoothMid = follow(state.smoothMid, midDrive, dt, 14, 4.5);
-    state.smoothTreble = follow(state.smoothTreble, highDrive, dt, 18, 6.5);
-    state.smoothEnergy = follow(state.smoothEnergy, energyDrive, dt, 11, 3.6);
-
-    // Short visual kick envelope. The full 2.1.0 renderer also merges this
-    // pulse into bass/energy and shader uniforms.
-    state.beatPulse *= Math.pow(0.055, dt);
-    if (state.beatPulse < 0.001) state.beatPulse = 0;
+    // Very short pulse so the visual hit lines up with the audible kick instead
+    // of glowing for several frames after it.
+    state.beatPulse *= Math.exp(-dt * 18.5);
+    if (state.beatPulse < 0.002) state.beatPulse = 0;
 
     var intensity = currentVisualIntensity();
-    var mappedEnergy = clamp01(Math.max(state.smoothEnergy, state.beatPulse * 0.30) * 1.14);
-    var mappedBass = clamp01(Math.min(0.90, state.smoothBass * 1.05 + state.beatPulse * 0.18) * intensity * 1.15);
-    var mappedMid = clamp01(Math.min(0.72, state.smoothMid * 1.12) * intensity * 1.10);
-    var mappedTreble = clamp01(Math.min(0.62, state.smoothTreble * 1.20) * intensity * 1.14);
-    var mappedBeat = clamp01(state.beatPulse * 1.22);
+    var bass = clamp01((state.smoothBass * 0.78 + state.beatPulse * 0.18) * intensity);
+    var mid = clamp01(state.smoothMid * 0.56 * intensity);
+    var treble = clamp01(state.smoothTreble * 0.52 * intensity);
+    var energy = clamp01(state.smoothEnergy * 0.68 + state.beatPulse * 0.16);
 
     state.frame = {
-      subBass: subBass,
-      bass: mappedBass,
-      lowMid: lowMid,
-      mid: mappedMid,
-      highMid: highMid,
-      presence: presence,
-      brilliance: brilliance,
-      air: air,
-      treble: mappedTreble,
-      energy: mappedEnergy,
-      beat: mappedBeat,
+      rawBass: rawBass,
+      rawMid: rawMid,
+      rawTreble: rawTreble,
+      bass: bass,
+      mid: mid,
+      treble: treble,
+      energy: energy,
+      meterBass: clamp01(state.meterBass * 0.92),
+      meterMid: clamp01(state.meterMid * 0.78),
+      meterHigh: clamp01(state.meterHigh * 0.78),
+      beat: clamp01(state.beatPulse),
       beatDetected: beatDetected,
       bpm: state.bpm,
       bpmConfidence: state.bpmConfidence,
@@ -341,56 +357,86 @@
   function bridgeFrameIntoMineradio(frame) {
     if (!frame) return;
 
-    // Feed the same live values into the old fork's global visual state when
-    // those globals exist. This makes the existing particles use real audio
-    // even if some of the older idle/hard-coded motion is still present.
     try { smoothBass = frame.bass; } catch (_) { window.__mineradioSystemBass = frame.bass; }
     try { smoothMid = frame.mid; } catch (_) { window.__mineradioSystemMid = frame.mid; }
     try { smoothTreb = frame.treble; } catch (_) { window.__mineradioSystemTreble = frame.treble; }
     try { smoothEnergy = frame.energy; } catch (_) { window.__mineradioSystemEnergy = frame.energy; }
-    try {
-      beatPulse = Math.max(Number(beatPulse) || 0, frame.beat);
-    } catch (_) {
-      window.__mineradioSystemBeat = frame.beat;
-    }
-    try {
-      if (frame.beatDetected) beatOnsetFlag = true;
-    } catch (_) {}
+    try { beatPulse = frame.beat; } catch (_) { window.__mineradioSystemBeat = frame.beat; }
+    try { beatOnsetFlag = !!frame.beatDetected; } catch (_) {}
 
-    // v2.1.0's core particle shader consumes these five uniforms directly.
     setUniformValue('uBass', frame.bass, false);
     setUniformValue('uMid', frame.mid, false);
     setUniformValue('uTreble', frame.treble, false);
     setUniformValue('uEnergy', frame.energy, false);
-    setUniformValue('uBeat', frame.beat, true);
+    setUniformValue('uBeat', frame.beat, false);
 
-    // Make individual kicks very obvious in older presets that expose the
-    // transition/burst uniform. The normal renderer will decay it afterward.
-    if (frame.beatDetected) {
-      setUniformValue('uBurstAmt', Math.max(0.42, frame.beat * 0.72), true);
-    }
+    // Only a strong kick is allowed to trigger the burst/glow path now.
+    if (frame.beatDetected) setUniformValue('uBurstAmt', 0.42 + frame.beat * 0.20, true);
 
     window.__mineradioSystemAudioFrame = frame;
+  }
+
+  function rememberParticleScales() {
+    try {
+      if (typeof particles !== 'undefined' && particles && particles.scale) state.particleBaseScale = particles.scale.x || 1;
+    } catch (_) {}
+    try {
+      if (typeof bloomParticles !== 'undefined' && bloomParticles && bloomParticles.scale) state.bloomBaseScale = bloomParticles.scale.x || 1;
+    } catch (_) {}
+  }
+
+  function applyAlbumPulse(frame) {
+    if (!frame) return;
+    var preset = currentPreset();
+    var isAlbumPreset = preset < 0.5 || (preset > 3.5 && preset < 4.5);
+    if (!isAlbumPreset) return;
+
+    // Continuous album breathing follows the stable bass envelope. Strong kicks
+    // add a short extra expansion. This is intentionally spatial instead of a
+    // full-screen white flash.
+    var scale = 1 + frame.meterBass * 0.040 + frame.beat * 0.036;
+    try {
+      if (typeof particles !== 'undefined' && particles && particles.scale) {
+        particles.scale.setScalar(state.particleBaseScale * scale);
+      }
+    } catch (_) {}
+    try {
+      if (typeof bloomParticles !== 'undefined' && bloomParticles && bloomParticles.scale) {
+        bloomParticles.scale.setScalar(state.bloomBaseScale * scale);
+      }
+    } catch (_) {}
+
+    var glow = document.getElementById('system-audio-dj-album-glow');
+    if (glow) {
+      var strong = frame.beat;
+      glow.style.opacity = String(Math.min(0.18, strong * 0.16));
+      glow.style.transform = 'translate(-50%,-50%) scale(' + (0.94 + strong * 0.10).toFixed(3) + ')';
+    }
+  }
+
+  function restoreParticleScales() {
+    try {
+      if (typeof particles !== 'undefined' && particles && particles.scale) particles.scale.setScalar(state.particleBaseScale || 1);
+    } catch (_) {}
+    try {
+      if (typeof bloomParticles !== 'undefined' && bloomParticles && bloomParticles.scale) bloomParticles.scale.setScalar(state.bloomBaseScale || 1);
+    } catch (_) {}
+    var glow = document.getElementById('system-audio-dj-album-glow');
+    if (glow) {
+      glow.style.opacity = '0';
+      glow.style.transform = 'translate(-50%,-50%) scale(.94)';
+    }
   }
 
   function updateHud(frame, now) {
     if (!frame) return;
     var hud = document.getElementById('system-audio-dj-hud');
-    var flash = document.getElementById('system-audio-dj-beat-flash');
     var button = document.getElementById('system-audio-dj-btn');
     if (!hud) return;
 
-    var beat = clamp01(frame.beat);
-    if (flash) {
-      flash.style.opacity = String(Math.min(0.55, beat * 0.48));
-      flash.style.transform = 'scale(' + (1 + beat * 0.012).toFixed(4) + ')';
-    }
-    if (button) {
-      button.style.setProperty('--system-dj-beat', beat.toFixed(3));
-    }
+    if (button) button.style.setProperty('--system-dj-beat', frame.beat.toFixed(3));
 
-    // DOM text/bars do not need to run at display refresh rate.
-    if (now - state.lastHudAt < 33 && !frame.beatDetected) return;
+    if (now - state.lastHudAt < 40 && !frame.beatDetected) return;
     state.lastHudAt = now;
 
     var bassBar = document.getElementById('system-audio-dj-bass');
@@ -400,33 +446,29 @@
     var status = document.getElementById('system-audio-dj-sync-status');
     var bpm = document.getElementById('system-audio-dj-bpm');
 
-    if (bassBar) bassBar.style.transform = 'scaleX(' + clamp01(frame.bass).toFixed(3) + ')';
-    if (midBar) midBar.style.transform = 'scaleX(' + clamp01(frame.mid).toFixed(3) + ')';
-    if (highBar) highBar.style.transform = 'scaleX(' + clamp01(frame.treble).toFixed(3) + ')';
+    if (bassBar) bassBar.style.transform = 'scaleX(' + frame.meterBass.toFixed(3) + ')';
+    if (midBar) midBar.style.transform = 'scaleX(' + frame.meterMid.toFixed(3) + ')';
+    if (highBar) highBar.style.transform = 'scaleX(' + frame.meterHigh.toFixed(3) + ')';
+
     if (beatLamp) {
-      beatLamp.style.transform = 'scale(' + (1 + beat * 0.72).toFixed(3) + ')';
-      beatLamp.style.opacity = String(0.34 + beat * 0.66);
+      beatLamp.style.transform = 'scale(' + (1 + frame.beat * 0.50).toFixed(3) + ')';
+      beatLamp.style.opacity = String(0.34 + frame.beat * 0.60);
     }
 
-    var audible = frame.rawEnergy > 0.025;
-    var locked = audible && (state.beatCount >= 2 || frame.beat > 0.10);
+    var audible = frame.rawEnergy > 0.022;
+    var locked = audible && state.beatCount >= 2;
     if (status) {
-      status.textContent = !audible ? 'NO AUDIO' : (locked ? 'SYNC LOCKED' : 'LISTENING');
+      status.textContent = !audible ? 'NO AUDIO' : (locked ? 'SYNC' : 'LISTENING');
       status.classList.toggle('locked', locked);
     }
     if (bpm) {
-      bpm.textContent = state.bpm && state.bpmConfidence > 0.16
-        ? (state.bpm + ' BPM')
-        : '-- BPM';
+      bpm.textContent = state.bpm && state.bpmConfidence > 0.18 ? state.bpm + ' BPM' : '-- BPM';
     }
 
     if (frame.beatDetected) {
       hud.classList.remove('hit');
       void hud.offsetWidth;
       hud.classList.add('hit');
-      document.body.classList.remove('system-audio-dj-beat-hit');
-      void document.body.offsetWidth;
-      document.body.classList.add('system-audio-dj-beat-hit');
     }
   }
 
@@ -437,11 +479,12 @@
     }
 
     var last = state.lastFrameAt || now;
-    var dt = clamp((now - last) / 1000, 1 / 240, 0.10);
+    var dt = clamp((now - last) / 1000, 1 / 240, 0.08);
     state.lastFrameAt = now;
 
     var frame = readLiveFrame(now, dt);
     bridgeFrameIntoMineradio(frame);
+    applyAlbumPulse(frame);
     updateHud(frame, now);
 
     state.raf = requestAnimationFrame(runVisualLoop);
@@ -454,10 +497,8 @@
   }
 
   function stopVisualLoop() {
-    if (state.raf) {
-      cancelAnimationFrame(state.raf);
-      state.raf = 0;
-    }
+    if (state.raf) cancelAnimationFrame(state.raf);
+    state.raf = 0;
     state.lastFrameAt = 0;
   }
 
@@ -467,9 +508,7 @@
     button.classList.toggle('active', state.active);
     button.classList.toggle('busy', state.starting);
     button.setAttribute('aria-pressed', state.active ? 'true' : 'false');
-    button.title = state.starting
-      ? '正在连接系统音频…'
-      : (state.active ? '关闭系统音频 DJ 分析' : '系统音频 DJ 分析');
+    button.title = state.starting ? 'Connecting system audio…' : (state.active ? 'Disable system audio DJ analyser' : 'System audio DJ analyser');
     button.textContent = state.starting ? '…' : 'DJ';
   }
 
@@ -483,8 +522,8 @@
       button.type = 'button';
       button.className = 'icon-btn system-audio-dj-btn';
       button.textContent = 'DJ';
-      button.title = '系统音频 DJ 分析';
-      button.setAttribute('aria-label', '系统音频 DJ 分析');
+      button.title = 'System audio DJ analyser';
+      button.setAttribute('aria-label', 'System audio DJ analyser');
       button.setAttribute('aria-pressed', 'false');
       button.addEventListener('click', function () {
         if (state.active || state.starting) stop();
@@ -510,34 +549,41 @@
         '<div class="system-dj-bpm" id="system-audio-dj-bpm">-- BPM</div>'
       ].join('');
       document.body.appendChild(hud);
+    }
 
-      var flash = document.createElement('div');
-      flash.id = 'system-audio-dj-beat-flash';
-      flash.setAttribute('aria-hidden', 'true');
-      document.body.appendChild(flash);
+    // Remove the old full-screen border flash if an older version left it in
+    // the DOM. The replacement glow stays around the album only.
+    var oldFlash = document.getElementById('system-audio-dj-beat-flash');
+    if (oldFlash && oldFlash.parentNode) oldFlash.parentNode.removeChild(oldFlash);
+
+    if (!document.getElementById('system-audio-dj-album-glow')) {
+      var glow = document.createElement('div');
+      glow.id = 'system-audio-dj-album-glow';
+      glow.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(glow);
     }
 
     if (!document.getElementById('system-audio-dj-style')) {
       var style = document.createElement('style');
       style.id = 'system-audio-dj-style';
       style.textContent = [
-        '#system-audio-dj-btn{position:relative;font-weight:800;letter-spacing:-.04em;--system-dj-beat:0;transform:scale(calc(1 + var(--system-dj-beat)*.10));transition:opacity .15s ease}',
+        '#system-audio-dj-btn{position:relative;font-weight:800;letter-spacing:-.04em;--system-dj-beat:0;transform:scale(calc(1 + var(--system-dj-beat)*.055));transition:opacity .15s ease}',
         '#system-audio-dj-btn::after{content:"";position:absolute;right:5px;bottom:5px;width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.28)}',
-        '#system-audio-dj-btn.active::after{background:#1ed760;box-shadow:0 0 calc(9px + var(--system-dj-beat)*14px) rgba(30,215,96,.88)}',
+        '#system-audio-dj-btn.active::after{background:#1ed760;box-shadow:0 0 calc(7px + var(--system-dj-beat)*8px) rgba(30,215,96,.70)}',
         '#system-audio-dj-btn.busy{opacity:.72}',
         '#system-audio-dj-hud{position:fixed;top:64px;left:50%;z-index:2147483000;width:260px;transform:translateX(-50%) scale(.98);padding:10px 12px 9px;border:1px solid rgba(255,255,255,.14);border-radius:14px;background:rgba(5,7,10,.72);backdrop-filter:blur(14px);box-shadow:0 10px 28px rgba(0,0,0,.32);color:#fff;font:700 10px/1.1 system-ui,-apple-system,Segoe UI,sans-serif;letter-spacing:.08em;pointer-events:none;opacity:0;transition:opacity .18s ease,transform .18s ease}',
-        'body.system-audio-dj-active #system-audio-dj-hud{opacity:.94;transform:translateX(-50%) scale(1)}',
-        '#system-audio-dj-hud.hit{animation:systemDjHudHit 160ms ease-out}',
+        'body.system-audio-dj-active #system-audio-dj-hud{opacity:.92;transform:translateX(-50%) scale(1)}',
+        '#system-audio-dj-hud.hit{animation:systemDjHudHit 130ms ease-out}',
         '.system-dj-title{display:flex;align-items:center;gap:7px;margin-bottom:8px}',
-        '#system-audio-dj-beat-lamp{display:block;width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 10px rgba(255,255,255,.75);transform-origin:center}',
+        '#system-audio-dj-beat-lamp{display:block;width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 8px rgba(255,255,255,.58);transform-origin:center}',
         '#system-audio-dj-sync-status{margin-left:auto;color:rgba(255,255,255,.52);font-size:9px}',
-        '#system-audio-dj-sync-status.locked{color:#74ffae;text-shadow:0 0 10px rgba(80,255,145,.38)}',
+        '#system-audio-dj-sync-status.locked{color:#74ffae;text-shadow:0 0 8px rgba(80,255,145,.30)}',
         '.system-dj-meter{display:grid;grid-template-columns:38px 1fr;align-items:center;gap:7px;margin:4px 0;color:rgba(255,255,255,.55);font-size:8px}',
         '.system-dj-meter i{display:block;height:4px;overflow:hidden;border-radius:999px;background:rgba(255,255,255,.10)}',
-        '.system-dj-meter b{display:block;width:100%;height:100%;transform:scaleX(0);transform-origin:left center;background:rgba(255,255,255,.88);border-radius:inherit;will-change:transform}',
-        '.system-dj-bpm{margin-top:7px;text-align:right;color:rgba(255,255,255,.72);font-variant-numeric:tabular-nums;font-size:9px}',
-        '#system-audio-dj-beat-flash{position:fixed;z-index:2147482000;inset:13px;border:2px solid rgba(255,255,255,.95);border-radius:22px;box-shadow:inset 0 0 34px rgba(255,255,255,.16),0 0 30px rgba(255,255,255,.12);pointer-events:none;opacity:0;transform:scale(1);transform-origin:center;will-change:opacity,transform}',
-        '@keyframes systemDjHudHit{0%{filter:brightness(1.65);transform:translateX(-50%) scale(1.035)}100%{filter:brightness(1);transform:translateX(-50%) scale(1)}}'
+        '.system-dj-meter b{display:block;width:100%;height:100%;transform:scaleX(0);transform-origin:left center;background:rgba(255,255,255,.82);border-radius:inherit;will-change:transform}',
+        '.system-dj-bpm{margin-top:7px;text-align:right;color:rgba(255,255,255,.68);font-variant-numeric:tabular-nums;font-size:9px}',
+        '#system-audio-dj-album-glow{position:fixed;z-index:1;left:50%;top:50%;width:min(42vw,42vh);height:min(42vw,42vh);border-radius:50%;pointer-events:none;opacity:0;transform:translate(-50%,-50%) scale(.94);background:radial-gradient(circle,rgba(255,255,255,.12) 0%,rgba(255,255,255,.055) 27%,rgba(255,255,255,0) 70%);filter:blur(12px);mix-blend-mode:screen;will-change:opacity,transform;transition:opacity 42ms linear}',
+        '@keyframes systemDjHudHit{0%{filter:brightness(1.24);transform:translateX(-50%) scale(1.012)}100%{filter:brightness(1);transform:translateX(-50%) scale(1)}}'
       ].join('');
       document.head.appendChild(style);
     }
@@ -563,12 +609,8 @@
     var oursBeat = state.beatAnalyser;
 
     if (previous) {
-      try {
-        if (safeRead('analyser', null) === oursMain) analyser = previous.analyser || null;
-      } catch (_) {}
-      try {
-        if (safeRead('beatAnalyser', null) === oursBeat) beatAnalyser = previous.beatAnalyser || null;
-      } catch (_) {}
+      try { if (safeRead('analyser', null) === oursMain) analyser = previous.analyser || null; } catch (_) {}
+      try { if (safeRead('beatAnalyser', null) === oursBeat) beatAnalyser = previous.beatAnalyser || null; } catch (_) {}
       try { audioReady = !!previous.audioReady; } catch (_) {}
     }
 
@@ -577,9 +619,7 @@
       if (
         typeof ensurePlaybackAudioGraph === 'function'
         && !(window.SpotifyIntegration && window.SpotifyIntegration.isCurrent && window.SpotifyIntegration.isCurrent())
-      ) {
-        ensurePlaybackAudioGraph('system-audio-dj-stop');
-      }
+      ) ensurePlaybackAudioGraph('system-audio-dj-stop');
     } catch (_) {}
   }
 
@@ -596,8 +636,8 @@
     disconnectNode(state.beatAnalyser);
     disconnectNode(state.analyserSink);
     disconnectNode(state.beatSink);
-
     restoreMineradioGraph();
+    restoreParticleScales();
 
     if (state.context) {
       try { await state.context.close(); } catch (_) {}
@@ -616,21 +656,15 @@
     state.previous = null;
     resetLiveAnalysis();
     updateButton();
-    document.body.classList.remove('system-audio-dj-active', 'system-audio-dj-beat-hit');
+    document.body.classList.remove('system-audio-dj-active');
 
-    var flash = document.getElementById('system-audio-dj-beat-flash');
-    if (flash) {
-      flash.style.opacity = '0';
-      flash.style.transform = 'scale(1)';
-    }
-
-    if (!silent) toast('系统音频 DJ 分析已关闭');
+    if (!silent) toast('System audio DJ analyser off');
   }
 
   async function start() {
     if (state.active || state.starting) return true;
     if (!desktopSupported()) {
-      toast('当前环境不支持系统音频分析');
+      toast('System audio analysis is only available in the desktop app');
       return false;
     }
 
@@ -639,27 +673,22 @@
     updateButton();
 
     try {
-      var captured = await navigator.mediaDevices.getDisplayMedia({
-        audio: true,
-        video: true,
-      });
+      var captured = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: true });
       var audioTracks = captured.getAudioTracks();
       if (!audioTracks.length) {
         captured.getTracks().forEach(function (track) { try { track.stop(); } catch (_) {} });
-        throw new Error('没有获取到系统音频，请确认 Windows 输出设备正在播放声音');
+        throw new Error('No system audio was captured');
       }
 
-      // Electron needs a display source to grant Windows loopback audio.
-      // Mineradio stops the video track immediately and never analyses/stores it.
       captured.getVideoTracks().forEach(function (track) {
         try { track.stop(); } catch (_) {}
         try { captured.removeTrack(track); } catch (_) {}
       });
 
       var AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContextCtor) throw new Error('当前 Chromium 不支持 Web Audio');
+      if (!AudioContextCtor) throw new Error('Web Audio is not supported');
 
-      var context = new AudioContextCtor();
+      var context = new AudioContextCtor({ latencyHint: 'interactive' });
       var audioOnly = new MediaStream(audioTracks);
       var sourceNode = context.createMediaStreamSource(audioOnly);
       var boostNode = context.createGain();
@@ -668,23 +697,22 @@
       var analyserSink = context.createGain();
       var beatSink = context.createGain();
 
-      // This gain only exists inside the silent analysis graph. It does NOT
-      // change Spotify/Windows playback volume.
       boostNode.gain.value = state.analysisGain;
       analyserSink.gain.value = 0;
       beatSink.gain.value = 0;
 
-      mainAnalyser.fftSize = Math.max(32, Math.min(32768, Number(safeRead('FFT_SIZE', 2048)) || 2048));
-      mainAnalyser.smoothingTimeConstant = 0.34;
+      // Keep the main graph compatible with Mineradio's existing FFT buffers,
+      // but use a smaller zero-smoothing analyser for the visual kick detector.
+      mainAnalyser.fftSize = Math.max(2048, Math.min(4096, Number(safeRead('FFT_SIZE', 2048)) || 2048));
+      mainAnalyser.smoothingTimeConstant = 0.08;
       mainAnalyser.minDecibels = -96;
       mainAnalyser.maxDecibels = -8;
 
-      realtimeBeatAnalyser.fftSize = Math.max(32, Math.min(32768, Number(safeRead('BEAT_FFT_SIZE', 1024)) || 1024));
-      realtimeBeatAnalyser.smoothingTimeConstant = 0.04;
+      realtimeBeatAnalyser.fftSize = 1024;
+      realtimeBeatAnalyser.smoothingTimeConstant = 0.0;
       realtimeBeatAnalyser.minDecibels = -96;
       realtimeBeatAnalyser.maxDecibels = -8;
 
-      // Keep both branches render-active without replaying/echoing captured audio.
       sourceNode.connect(boostNode);
       boostNode.connect(mainAnalyser);
       boostNode.connect(realtimeBeatAnalyser);
@@ -712,12 +740,11 @@
       setGlobalAnalyserBindings(mainAnalyser, realtimeBeatAnalyser);
       resetRealtimeEngine();
       resetLiveAnalysis();
+      rememberParticleScales();
 
       audioTracks.forEach(function (track) {
         track.addEventListener('ended', function () {
-          if (state.active) stop(true).then(function () {
-            toast('系统音频捕获已结束');
-          });
+          if (state.active) stop(true).then(function () { toast('System audio capture ended'); });
         }, { once: true });
       });
 
@@ -730,14 +757,14 @@
       document.body.classList.add('system-audio-dj-active');
       updateButton();
       startVisualLoop();
-      toast('V2.1 LIVE 已启用 · 白色边框闪烁就是检测到的真实节拍');
+      toast('V2.1 LIVE · album pulse uses bass · only strong kicks glow');
       return true;
     } catch (error) {
       state.starting = false;
       updateButton();
       await stop(true);
-      var message = error && error.message ? error.message : '系统音频分析启动失败';
-      if (/permission|denied|notallowed/i.test(message)) message = '系统音频捕获被取消或没有权限';
+      var message = error && error.message ? error.message : 'System audio analyser failed to start';
+      if (/permission|denied|notallowed/i.test(message)) message = 'System audio capture was cancelled or denied';
       toast(message);
       return false;
     }
@@ -752,33 +779,21 @@
     getBeatAnalyser: function () { return state.beatAnalyser; },
     getFrame: function () { return Object.assign({}, state.frame); },
     getBpm: function () {
-      return {
-        bpm: state.bpm,
-        confidence: state.bpmConfidence,
-        intervals: state.beatIntervals.slice(),
-      };
+      return { bpm: state.bpm, confidence: state.bpmConfidence, intervals: state.beatIntervals.slice() };
     },
     setAnalysisGain: function (value) {
-      state.analysisGain = clamp(value, 0.5, 4.0);
+      state.analysisGain = clamp(value, 0.6, 2.5);
       if (state.boost && state.context) {
-        try {
-          state.boost.gain.setTargetAtTime(state.analysisGain, state.context.currentTime, 0.035);
-        } catch (_) {
-          state.boost.gain.value = state.analysisGain;
-        }
+        try { state.boost.gain.setTargetAtTime(state.analysisGain, state.context.currentTime, 0.025); }
+        catch (_) { state.boost.gain.value = state.analysisGain; }
       }
       return state.analysisGain;
     },
   };
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', ensureUi, { once: true });
-  } else {
-    ensureUi();
-  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ensureUi, { once: true });
+  else ensureUi();
 
-  // Spotify inserts its status button after initial page setup. Retry briefly so
-  // the DJ control lands beside it instead of falling back to the document body.
   var uiAttempts = 0;
   var uiTimer = setInterval(function () {
     uiAttempts += 1;
