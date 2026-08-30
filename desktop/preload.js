@@ -49,4 +49,14 @@ contextBridge.exposeInMainWorld('desktopWindow', {
 window.addEventListener('DOMContentLoaded', () => {
   document.documentElement.classList.add('desktop-shell-root');
   document.body.classList.add('desktop-shell');
+
+  // Desktop-only system-audio analyser. Its HUD now owns its own bass/mid/high
+  // meters, so there is no second meter script fighting the values every frame.
+  if (!document.getElementById('system-audio-dj-script')) {
+    const script = document.createElement('script');
+    script.id = 'system-audio-dj-script';
+    script.src = '/system-audio-dj.js';
+    script.async = false;
+    document.head.appendChild(script);
+  }
 });
