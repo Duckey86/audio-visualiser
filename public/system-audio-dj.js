@@ -18,7 +18,7 @@
     beatData: null,
     lastFrameAt: 0,
     lastHudAt: 0,
-    analysisGain: 1.15,
+    analysisGain: 1.10,
 
     bassMean: 0.075,
     bassDev: 0.025,
@@ -43,6 +43,8 @@
 
     particleBaseScale: 1,
     bloomBaseScale: 1,
+    uniformGuards: [],
+    uniformGuardsInstalled: false,
 
     frame: {
       rawBass: 0,
@@ -95,7 +97,6 @@
       if (name === 'beatAnalyser') return beatAnalyser;
       if (name === 'audioReady') return audioReady;
       if (name === 'FFT_SIZE') return FFT_SIZE;
-      if (name === 'BEAT_FFT_SIZE') return BEAT_FFT_SIZE;
     } catch (_) {}
     return fallback;
   }
@@ -130,7 +131,7 @@
     var weight = 0;
     for (var i = start; i <= end; i++) {
       var p = end === start ? 0.5 : (i - start) / (end - start);
-      var w = 0.88 + Math.sin(p * Math.PI) * 0.12;
+      var w = 0.90 + Math.sin(p * Math.PI) * 0.10;
       total += (data[i] / 255) * w;
       weight += w;
     }
@@ -174,7 +175,7 @@
   function updateBpm(now) {
     if (!state.lastBeatAt) return;
     var gap = now - state.lastBeatAt;
-    if (gap >= 260 && gap <= 1400) {
+    if (gap >= 280 && gap <= 1400) {
       state.beatIntervals.push(gap);
       if (state.beatIntervals.length > 10) state.beatIntervals.shift();
     }
@@ -187,6 +188,26 @@
     var spread = center > 0 ? standardDeviation(state.beatIntervals, center) / center : 1;
     state.bpm = Math.round(bpm);
     state.bpmConfidence = clamp01((state.beatIntervals.length / 7) * (1 - Math.min(0.85, spread * 2.7)));
+  }
+
+  function currentPreset() {
+    try {
+      if (typeof fx !== 'undefined' && fx && Number.isFinite(Number(fx.preset))) return Number(fx.preset);
+    } catch (_) {}
+    return 0;
+  }
+
+  function isAlbumPreset() {
+    var preset = currentPreset();
+    return preset < 0.5 || (preset > 3.5 && preset < 4.5);
+  }
+
+  function currentVisualIntensity() {
+    var intensity = 0.85;
+    try {
+      if (typeof fx !== 'undefined' && fx && Number.isFinite(Number(fx.intensity))) intensity = Number(fx.intensity);
+    } catch (_) {}
+    return clamp(intensity, 0.35, 1.20);
   }
 
   function resetLiveAnalysis() {
@@ -233,97 +254,89 @@
     };
   }
 
-  function currentPreset() {
-    try {
-      if (typeof fx !== 'undefined' && fx && Number.isFinite(Number(fx.preset))) return Number(fx.preset);
-    } catch (_) {}
-    return 0;
-  }
-
-  function currentVisualIntensity() {
-    var intensity = 0.85;
-    try {
-      if (typeof fx !== 'undefined' && fx && Number.isFinite(Number(fx.intensity))) intensity = Number(fx.intensity);
-    } catch (_) {}
-    return clamp(intensity, 0.35, 1.20);
-  }
-
   function readLiveFrame(now, dt) {
     if (!state.analyser || !state.beatAnalyser || !state.freqData || !state.beatData) return null;
 
     state.beatAnalyser.getByteFrequencyData(state.beatData);
     state.analyser.getByteFrequencyData(state.freqData);
 
-    var rawBass = bandAverage(state.beatData, state.beatAnalyser, 38, 175);
-    var rawMid = bandAverage(state.freqData, state.analyser, 240, 1600);
-    var rawTreble = bandAverage(state.freqData, state.analyser, 2600, 10500);
+    // Keep the kick detector down in the actual kick/sub-bass area. The old
+    // 38-175 Hz band was wide enough that some bass guitar / lower mids could
+    // look like a kick and create seemingly random pulses.
+    var rawBass = bandAverage(state.beatData, state.beatAnalyser, 38, 128);
+    var rawMid = bandAverage(state.freqData, state.analyser, 260, 1650);
+    var rawTreble = bandAverage(state.freqData, state.analyser, 2800, 10500);
     var rawEnergy = spectrumEnergy(state.freqData);
 
-    state.bassPeak = Math.max(rawBass, state.bassPeak * Math.exp(-dt * 0.52), 0.18);
-    state.midPeak = Math.max(rawMid, state.midPeak * Math.exp(-dt * 0.34), 0.17);
-    state.highPeak = Math.max(rawTreble, state.highPeak * Math.exp(-dt * 0.34), 0.14);
+    state.bassPeak = Math.max(rawBass, state.bassPeak * Math.exp(-dt * 0.48), 0.18);
+    state.midPeak = Math.max(rawMid, state.midPeak * Math.exp(-dt * 0.28), 0.18);
+    state.highPeak = Math.max(rawTreble, state.highPeak * Math.exp(-dt * 0.30), 0.15);
 
-    var bassLevel = dynamicLevel(rawBass, state.bassPeak, 0.030);
-    var midLevel = dynamicLevel(rawMid, state.midPeak, 0.025);
-    var highLevel = dynamicLevel(rawTreble, state.highPeak, 0.020);
-    var energyLevel = clamp01((rawEnergy - 0.025) / 0.38);
+    var bassLevel = dynamicLevel(rawBass, state.bassPeak, 0.035);
+    var midLevel = dynamicLevel(rawMid, state.midPeak, 0.030);
+    var highLevel = dynamicLevel(rawTreble, state.highPeak, 0.024);
+    var energyLevel = clamp01((rawEnergy - 0.028) / 0.40);
 
-    state.smoothBass = follow(state.smoothBass, bassLevel, dt, 30, 8.0);
-    state.smoothMid = follow(state.smoothMid, midLevel, dt, 16, 5.2);
-    state.smoothTreble = follow(state.smoothTreble, highLevel, dt, 19, 6.0);
-    state.smoothEnergy = follow(state.smoothEnergy, energyLevel, dt, 15, 5.0);
+    state.smoothBass = follow(state.smoothBass, bassLevel, dt, 32, 8.5);
+    state.smoothMid = follow(state.smoothMid, midLevel, dt, 13, 4.5);
+    state.smoothTreble = follow(state.smoothTreble, highLevel, dt, 17, 5.5);
+    state.smoothEnergy = follow(state.smoothEnergy, energyLevel, dt, 14, 4.5);
 
-    state.meterBass = follow(state.meterBass, bassLevel, dt, 11, 4.0);
-    state.meterMid = follow(state.meterMid, midLevel, dt, 8, 3.2);
-    state.meterHigh = follow(state.meterHigh, highLevel, dt, 9, 3.5);
+    // HUD bars are deliberately slower and compressed so MID/HIGH cannot sit
+    // permanently full on a loud/compressed master.
+    state.meterBass = follow(state.meterBass, bassLevel, dt, 10, 3.8);
+    state.meterMid = follow(state.meterMid, Math.pow(midLevel, 1.45) * 0.74, dt, 7, 3.0);
+    state.meterHigh = follow(state.meterHigh, Math.pow(highLevel, 1.35) * 0.74, dt, 8, 3.2);
 
-    // Dedicated low-latency album envelope: it reaches most of a new bass peak
-    // in one rendered frame, then releases smoothly. This avoids making the
-    // visual wait for the slower diagnostic meter.
-    state.albumBass = follow(state.albumBass, bassLevel, dt, 68, 9.5);
+    // This is the low-latency album envelope. It is fast on the way up, but the
+    // scale function below gates out the bottom part so tiny FFT fluctuations do
+    // not look like random pulses.
+    state.albumBass = follow(state.albumBass, bassLevel, dt, 64, 8.8);
 
-    var meanBlend = rawBass > state.bassMean ? 0.010 : 0.034;
+    var meanBlend = rawBass > state.bassMean ? 0.008 : 0.030;
     state.bassMean += (rawBass - state.bassMean) * meanBlend;
     var deviation = Math.abs(rawBass - state.bassMean);
-    state.bassDev += (deviation - state.bassDev) * 0.030;
+    state.bassDev += (deviation - state.bassDev) * 0.026;
 
     var rise = Math.max(0, rawBass - state.prevBassRaw);
     state.prevBassRaw = rawBass;
-    var ratio = rawBass / Math.max(0.055, state.bassMean);
-    var z = (rawBass - state.bassMean) / Math.max(0.018, state.bassDev);
+    var ratio = rawBass / Math.max(0.060, state.bassMean);
+    var z = (rawBass - state.bassMean) / Math.max(0.020, state.bassDev);
     var strongScore = clamp01(
-      Math.max(0, ratio - 1.12) * 1.25
-      + rise * 3.6
-      + Math.max(0, z - 0.95) * 0.18
+      Math.max(0, ratio - 1.16) * 1.30
+      + rise * 3.8
+      + Math.max(0, z - 1.10) * 0.16
     );
 
-    // Decay the old pulse BEFORE checking the current frame. A newly detected
-    // kick therefore gets its full-strength pulse immediately instead of being
-    // reduced on the same frame it was detected.
-    state.beatPulse *= Math.exp(-dt * 22.0);
+    // Short pulse envelope. Decay first so a new kick gets full strength on the
+    // frame it is detected.
+    state.beatPulse *= Math.exp(-dt * 23.0);
     if (state.beatPulse < 0.002) state.beatPulse = 0;
 
     var beatDetected = false;
-    var cooldown = 245;
+    var cooldown = 285;
+    var adaptiveFloor = state.bassMean + state.bassDev * 1.45;
     if (
-      rawBass > 0.115
-      && ratio > 1.10
-      && rise > 0.010
-      && strongScore > 0.56
+      rawBass > 0.135
+      && rawBass > adaptiveFloor
+      && ratio > 1.16
+      && z > 1.05
+      && rise > 0.016
+      && strongScore > 0.68
       && (!state.lastBeatAt || now - state.lastBeatAt >= cooldown)
     ) {
       updateBpm(now);
       state.lastBeatAt = now;
       state.beatCount++;
-      state.beatPulse = Math.max(state.beatPulse, 0.82 + strongScore * 0.18);
+      state.beatPulse = Math.max(state.beatPulse, 0.84 + strongScore * 0.16);
       beatDetected = true;
     }
 
     var intensity = currentVisualIntensity();
-    var bass = clamp01((state.smoothBass * 0.78 + state.beatPulse * 0.18) * intensity);
-    var mid = clamp01(state.smoothMid * 0.56 * intensity);
-    var treble = clamp01(state.smoothTreble * 0.52 * intensity);
-    var energy = clamp01(state.smoothEnergy * 0.68 + state.beatPulse * 0.16);
+    var bass = clamp01(state.smoothBass * 0.72 * intensity);
+    var mid = clamp01(state.smoothMid * 0.48 * intensity);
+    var treble = clamp01(state.smoothTreble * 0.48 * intensity);
+    var energy = clamp01(state.smoothEnergy * 0.60);
 
     state.frame = {
       rawBass: rawBass,
@@ -333,9 +346,9 @@
       mid: mid,
       treble: treble,
       energy: energy,
-      meterBass: clamp01(state.meterBass * 0.92),
-      meterMid: clamp01(state.meterMid * 0.78),
-      meterHigh: clamp01(state.meterHigh * 0.78),
+      meterBass: clamp01(state.meterBass * 0.88),
+      meterMid: clamp01(state.meterMid),
+      meterHigh: clamp01(state.meterHigh),
       albumBass: clamp01(state.albumBass),
       beat: clamp01(state.beatPulse),
       beatDetected: beatDetected,
@@ -356,23 +369,106 @@
     } catch (_) {}
   }
 
+  function installUniformGuard(name, albumValue) {
+    try {
+      if (typeof uniforms === 'undefined' || !uniforms || !uniforms[name]) return false;
+      var slot = uniforms[name];
+      var descriptor = Object.getOwnPropertyDescriptor(slot, 'value');
+      if (descriptor && descriptor.configurable === false) return false;
+      var stored = slot.value;
+
+      Object.defineProperty(slot, 'value', {
+        configurable: true,
+        enumerable: true,
+        get: function () { return stored; },
+        set: function (next) {
+          stored = state.active && isAlbumPreset() ? albumValue : next;
+        },
+      });
+
+      // Force the currently stored value clean as well.
+      if (state.active && isAlbumPreset()) slot.value = albumValue;
+
+      state.uniformGuards.push({
+        slot: slot,
+        descriptor: descriptor,
+        getStored: function () { return stored; },
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function ensureUniformGuards() {
+    if (state.uniformGuardsInstalled) return;
+    try {
+      if (typeof uniforms === 'undefined' || !uniforms) return;
+      // These three are what create the travelling/ripple-style movement in the
+      // album presets. DJ mode now handles bass motion by scaling the album as a
+      // whole, so suppress them only while an album preset is active.
+      var bassOk = installUniformGuard('uBass', 0);
+      var beatOk = installUniformGuard('uBeat', 0);
+      var burstOk = installUniformGuard('uBurstAmt', 0);
+      state.uniformGuardsInstalled = !!(bassOk || beatOk || burstOk);
+    } catch (_) {}
+  }
+
+  function restoreUniformGuards() {
+    for (var i = state.uniformGuards.length - 1; i >= 0; i--) {
+      var guard = state.uniformGuards[i];
+      try {
+        var value = guard.getStored();
+        if (guard.descriptor) {
+          var restored = Object.assign({}, guard.descriptor);
+          if (Object.prototype.hasOwnProperty.call(restored, 'value')) restored.value = value;
+          Object.defineProperty(guard.slot, 'value', restored);
+        } else {
+          delete guard.slot.value;
+          guard.slot.value = value;
+        }
+      } catch (_) {}
+    }
+    state.uniformGuards = [];
+    state.uniformGuardsInstalled = false;
+  }
+
   function bridgeFrameIntoMineradio(frame) {
     if (!frame) return;
+    ensureUniformGuards();
 
-    try { smoothBass = frame.bass; } catch (_) { window.__mineradioSystemBass = frame.bass; }
-    try { smoothMid = frame.mid; } catch (_) { window.__mineradioSystemMid = frame.mid; }
-    try { smoothTreb = frame.treble; } catch (_) { window.__mineradioSystemTreble = frame.treble; }
-    try { smoothEnergy = frame.energy; } catch (_) { window.__mineradioSystemEnergy = frame.energy; }
-    try { beatPulse = frame.beat; } catch (_) { window.__mineradioSystemBeat = frame.beat; }
-    try { beatOnsetFlag = !!frame.beatDetected; } catch (_) {}
+    if (isAlbumPreset()) {
+      // The album should breathe/scale, not launch a shader ripple. Keep the
+      // original renderer's onset/bass globals quiet and let applyAlbumPulse()
+      // own the low-frequency movement.
+      try { smoothBass = 0; } catch (_) { window.__mineradioSystemBass = 0; }
+      try { smoothMid = frame.mid; } catch (_) { window.__mineradioSystemMid = frame.mid; }
+      try { smoothTreb = frame.treble; } catch (_) { window.__mineradioSystemTreble = frame.treble; }
+      try { smoothEnergy = frame.energy; } catch (_) { window.__mineradioSystemEnergy = frame.energy; }
+      try { beatPulse = 0; } catch (_) { window.__mineradioSystemBeat = 0; }
+      try { beatOnsetFlag = false; } catch (_) {}
 
-    setUniformValue('uBass', frame.bass, false);
-    setUniformValue('uMid', frame.mid, false);
-    setUniformValue('uTreble', frame.treble, false);
-    setUniformValue('uEnergy', frame.energy, false);
-    setUniformValue('uBeat', frame.beat, false);
+      setUniformValue('uBass', 0, false);
+      setUniformValue('uMid', frame.mid, false);
+      setUniformValue('uTreble', frame.treble, false);
+      setUniformValue('uEnergy', frame.energy, false);
+      setUniformValue('uBeat', 0, false);
+      setUniformValue('uBurstAmt', 0, false);
+    } else {
+      try { smoothBass = frame.bass; } catch (_) { window.__mineradioSystemBass = frame.bass; }
+      try { smoothMid = frame.mid; } catch (_) { window.__mineradioSystemMid = frame.mid; }
+      try { smoothTreb = frame.treble; } catch (_) { window.__mineradioSystemTreble = frame.treble; }
+      try { smoothEnergy = frame.energy; } catch (_) { window.__mineradioSystemEnergy = frame.energy; }
+      try { beatPulse = frame.beat; } catch (_) { window.__mineradioSystemBeat = frame.beat; }
+      try { beatOnsetFlag = !!frame.beatDetected; } catch (_) {}
 
-    if (frame.beatDetected) setUniformValue('uBurstAmt', 0.42 + frame.beat * 0.20, true);
+      setUniformValue('uBass', frame.bass, false);
+      setUniformValue('uMid', frame.mid, false);
+      setUniformValue('uTreble', frame.treble, false);
+      setUniformValue('uEnergy', frame.energy, false);
+      setUniformValue('uBeat', frame.beat, false);
+      if (frame.beatDetected) setUniformValue('uBurstAmt', 0.36 + frame.beat * 0.12, true);
+    }
 
     window.__mineradioSystemAudioFrame = frame;
   }
@@ -387,14 +483,17 @@
   }
 
   function applyAlbumPulse(frame) {
-    if (!frame) return;
-    var preset = currentPreset();
-    var isAlbumPreset = preset < 0.5 || (preset > 3.5 && preset < 4.5);
-    if (!isAlbumPreset) return;
+    if (!frame || !isAlbumPreset()) return;
 
-    // Album motion uses the fast envelope, not the slow HUD meter. Strong kicks
-    // get an extra immediate punch; smaller bass still gives a subtle breath.
-    var scale = 1 + frame.albumBass * 0.036 + frame.beat * 0.048;
+    // Gate the lower part of the envelope. This keeps normal low-end movement
+    // smooth while preventing tiny fluctuations from looking like random hits.
+    var albumDrive = clamp01((frame.albumBass - 0.26) / 0.74);
+    albumDrive = Math.pow(albumDrive, 1.35);
+
+    // Normal bass gives a subtle 0-2.4% breathe. Only a detected strong kick
+    // adds the larger 5% punch.
+    var scale = 1 + albumDrive * 0.024 + frame.beat * 0.050;
+
     try {
       if (typeof particles !== 'undefined' && particles && particles.scale) {
         particles.scale.setScalar(state.particleBaseScale * scale);
@@ -408,9 +507,9 @@
 
     var glow = document.getElementById('system-audio-dj-album-glow');
     if (glow) {
-      var strong = frame.beat;
-      glow.style.opacity = String(Math.min(0.18, strong * 0.16));
-      glow.style.transform = 'translate(-50%,-50%) scale(' + (0.94 + strong * 0.10).toFixed(3) + ')';
+      // No eye-flash: a strong kick only adds a very faint local halo.
+      glow.style.opacity = String(Math.min(0.075, frame.beat * 0.070));
+      glow.style.transform = 'translate(-50%,-50%) scale(' + (0.96 + frame.beat * 0.055).toFixed(3) + ')';
     }
   }
 
@@ -424,7 +523,7 @@
     var glow = document.getElementById('system-audio-dj-album-glow');
     if (glow) {
       glow.style.opacity = '0';
-      glow.style.transform = 'translate(-50%,-50%) scale(.94)';
+      glow.style.transform = 'translate(-50%,-50%) scale(.96)';
     }
   }
 
@@ -435,8 +534,7 @@
     if (!hud) return;
 
     if (button) button.style.setProperty('--system-dj-beat', frame.beat.toFixed(3));
-
-    if (now - state.lastHudAt < 40 && !frame.beatDetected) return;
+    if (now - state.lastHudAt < 42 && !frame.beatDetected) return;
     state.lastHudAt = now;
 
     var bassBar = document.getElementById('system-audio-dj-bass');
@@ -451,8 +549,8 @@
     if (highBar) highBar.style.transform = 'scaleX(' + frame.meterHigh.toFixed(3) + ')';
 
     if (beatLamp) {
-      beatLamp.style.transform = 'scale(' + (1 + frame.beat * 0.50).toFixed(3) + ')';
-      beatLamp.style.opacity = String(0.34 + frame.beat * 0.60);
+      beatLamp.style.transform = 'scale(' + (1 + frame.beat * 0.38).toFixed(3) + ')';
+      beatLamp.style.opacity = String(0.30 + frame.beat * 0.48);
     }
 
     var audible = frame.rawEnergy > 0.022;
@@ -461,9 +559,7 @@
       status.textContent = !audible ? 'NO AUDIO' : (locked ? 'SYNC' : 'LISTENING');
       status.classList.toggle('locked', locked);
     }
-    if (bpm) {
-      bpm.textContent = state.bpm && state.bpmConfidence > 0.18 ? state.bpm + ' BPM' : '-- BPM';
-    }
+    if (bpm) bpm.textContent = state.bpm && state.bpmConfidence > 0.18 ? state.bpm + ' BPM' : '-- BPM';
 
     if (frame.beatDetected) {
       hud.classList.remove('hit');
@@ -486,7 +582,6 @@
     bridgeFrameIntoMineradio(frame);
     applyAlbumPulse(frame);
     updateHud(frame, now);
-
     state.raf = requestAnimationFrame(runVisualLoop);
   }
 
@@ -565,23 +660,23 @@
       var style = document.createElement('style');
       style.id = 'system-audio-dj-style';
       style.textContent = [
-        '#system-audio-dj-btn{position:relative;font-weight:800;letter-spacing:-.04em;--system-dj-beat:0;transform:scale(calc(1 + var(--system-dj-beat)*.055));transition:opacity .15s ease}',
+        '#system-audio-dj-btn{position:relative;font-weight:800;letter-spacing:-.04em;--system-dj-beat:0;transform:scale(calc(1 + var(--system-dj-beat)*.035));transition:opacity .15s ease}',
         '#system-audio-dj-btn::after{content:"";position:absolute;right:5px;bottom:5px;width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.28)}',
-        '#system-audio-dj-btn.active::after{background:#1ed760;box-shadow:0 0 calc(7px + var(--system-dj-beat)*8px) rgba(30,215,96,.70)}',
+        '#system-audio-dj-btn.active::after{background:#1ed760;box-shadow:0 0 calc(7px + var(--system-dj-beat)*6px) rgba(30,215,96,.62)}',
         '#system-audio-dj-btn.busy{opacity:.72}',
         '#system-audio-dj-hud{position:fixed;top:64px;left:50%;z-index:2147483000;width:260px;transform:translateX(-50%) scale(.98);padding:10px 12px 9px;border:1px solid rgba(255,255,255,.14);border-radius:14px;background:rgba(5,7,10,.72);backdrop-filter:blur(14px);box-shadow:0 10px 28px rgba(0,0,0,.32);color:#fff;font:700 10px/1.1 system-ui,-apple-system,Segoe UI,sans-serif;letter-spacing:.08em;pointer-events:none;opacity:0;transition:opacity .18s ease,transform .18s ease}',
-        'body.system-audio-dj-active #system-audio-dj-hud{opacity:.92;transform:translateX(-50%) scale(1)}',
-        '#system-audio-dj-hud.hit{animation:systemDjHudHit 130ms ease-out}',
+        'body.system-audio-dj-active #system-audio-dj-hud{opacity:.90;transform:translateX(-50%) scale(1)}',
+        '#system-audio-dj-hud.hit{animation:systemDjHudHit 110ms ease-out}',
         '.system-dj-title{display:flex;align-items:center;gap:7px;margin-bottom:8px}',
-        '#system-audio-dj-beat-lamp{display:block;width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 8px rgba(255,255,255,.58);transform-origin:center}',
+        '#system-audio-dj-beat-lamp{display:block;width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 7px rgba(255,255,255,.48);transform-origin:center}',
         '#system-audio-dj-sync-status{margin-left:auto;color:rgba(255,255,255,.52);font-size:9px}',
-        '#system-audio-dj-sync-status.locked{color:#74ffae;text-shadow:0 0 8px rgba(80,255,145,.30)}',
+        '#system-audio-dj-sync-status.locked{color:#74ffae;text-shadow:0 0 8px rgba(80,255,145,.28)}',
         '.system-dj-meter{display:grid;grid-template-columns:38px 1fr;align-items:center;gap:7px;margin:4px 0;color:rgba(255,255,255,.55);font-size:8px}',
         '.system-dj-meter i{display:block;height:4px;overflow:hidden;border-radius:999px;background:rgba(255,255,255,.10)}',
-        '.system-dj-meter b{display:block;width:100%;height:100%;transform:scaleX(0);transform-origin:left center;background:rgba(255,255,255,.82);border-radius:inherit;will-change:transform}',
+        '.system-dj-meter b{display:block;width:100%;height:100%;transform:scaleX(0);transform-origin:left center;background:rgba(255,255,255,.80);border-radius:inherit;will-change:transform}',
         '.system-dj-bpm{margin-top:7px;text-align:right;color:rgba(255,255,255,.68);font-variant-numeric:tabular-nums;font-size:9px}',
-        '#system-audio-dj-album-glow{position:fixed;z-index:1;left:50%;top:50%;width:min(42vw,42vh);height:min(42vw,42vh);border-radius:50%;pointer-events:none;opacity:0;transform:translate(-50%,-50%) scale(.94);background:radial-gradient(circle,rgba(255,255,255,.12) 0%,rgba(255,255,255,.055) 27%,rgba(255,255,255,0) 70%);filter:blur(12px);mix-blend-mode:screen;will-change:opacity,transform;transition:opacity 32ms linear}',
-        '@keyframes systemDjHudHit{0%{filter:brightness(1.24);transform:translateX(-50%) scale(1.012)}100%{filter:brightness(1);transform:translateX(-50%) scale(1)}}'
+        '#system-audio-dj-album-glow{position:fixed;z-index:1;left:50%;top:50%;width:min(40vw,40vh);height:min(40vw,40vh);border-radius:50%;pointer-events:none;opacity:0;transform:translate(-50%,-50%) scale(.96);background:radial-gradient(circle,rgba(255,255,255,.08) 0%,rgba(255,255,255,.025) 32%,rgba(255,255,255,0) 72%);filter:blur(14px);mix-blend-mode:screen;will-change:opacity,transform;transition:opacity 38ms linear}',
+        '@keyframes systemDjHudHit{0%{filter:brightness(1.14);transform:translateX(-50%) scale(1.006)}100%{filter:brightness(1);transform:translateX(-50%) scale(1)}}'
       ].join('');
       document.head.appendChild(style);
     }
@@ -636,6 +731,7 @@
     disconnectNode(state.beatSink);
     restoreMineradioGraph();
     restoreParticleScales();
+    restoreUniformGuards();
 
     if (state.context) {
       try { await state.context.close(); } catch (_) {}
@@ -700,10 +796,13 @@
       beatSink.gain.value = 0;
 
       mainAnalyser.fftSize = Math.max(2048, Math.min(4096, Number(safeRead('FFT_SIZE', 2048)) || 2048));
-      mainAnalyser.smoothingTimeConstant = 0.04;
+      mainAnalyser.smoothingTimeConstant = 0.035;
       mainAnalyser.minDecibels = -96;
       mainAnalyser.maxDecibels = -8;
 
+      // 1024 is kept because the low-frequency bins are still useful for kick
+      // discrimination. 512 would lower latency a little but makes 40-120 Hz too
+      // coarse to reliably separate bass hits from other content.
       realtimeBeatAnalyser.fftSize = 1024;
       realtimeBeatAnalyser.smoothingTimeConstant = 0.0;
       realtimeBeatAnalyser.minDecibels = -96;
@@ -751,9 +850,10 @@
       state.starting = false;
       state.active = true;
       document.body.classList.add('system-audio-dj-active');
+      ensureUniformGuards();
       updateButton();
       startVisualLoop();
-      toast('V2.1 LIVE · low-latency album bass pulse enabled');
+      toast('V2.1 LIVE · album pulse cleaned up · strong kicks only');
       return true;
     } catch (error) {
       state.starting = false;
