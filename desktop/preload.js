@@ -50,21 +50,13 @@ window.addEventListener('DOMContentLoaded', () => {
   document.documentElement.classList.add('desktop-shell-root');
   document.body.classList.add('desktop-shell');
 
-  // Keep the system-audio analyser out of the web build. The preload injects
-  // it only into the packaged Electron renderer where loopback capture exists.
+  // Desktop-only system-audio analyser. Its HUD now owns its own bass/mid/high
+  // meters, so there is no second meter script fighting the values every frame.
   if (!document.getElementById('system-audio-dj-script')) {
     const script = document.createElement('script');
     script.id = 'system-audio-dj-script';
     script.src = '/system-audio-dj.js';
     script.async = false;
-    script.addEventListener('load', () => {
-      if (document.getElementById('system-audio-dj-meter-script')) return;
-      const meterScript = document.createElement('script');
-      meterScript.id = 'system-audio-dj-meter-script';
-      meterScript.src = '/system-audio-dj-meter.js';
-      meterScript.async = false;
-      document.head.appendChild(meterScript);
-    }, { once: true });
     document.head.appendChild(script);
   }
 });
