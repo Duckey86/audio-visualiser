@@ -16,16 +16,20 @@
     raf: 0,
     freqData: null,
     beatData: null,
+    prevBeatSpectrum: null,
+    fluxPrimed: false,
     lastFrameAt: 0,
     lastHudAt: 0,
     analysisGain: 1.10,
 
-    bassMean: 0.075,
-    bassDev: 0.025,
     bassPeak: 0.22,
     midPeak: 0.20,
     highPeak: 0.16,
     prevBassRaw: 0,
+    fastBass: 0,
+    slowBass: 0,
+    fluxMean: 0.010,
+    fluxDev: 0.006,
     smoothBass: 0,
     smoothMid: 0,
     smoothTreble: 0,
@@ -50,6 +54,8 @@
       rawBass: 0,
       rawMid: 0,
       rawTreble: 0,
+      bassFlux: 0,
+      bassTransient: 0,
       bass: 0,
       mid: 0,
       treble: 0,
@@ -138,6 +144,41 @@
     return weight > 0 ? total / weight : 0;
   }
 
+  function lowBandFlux(data, analyserNode, minHz, maxHz) {
+    if (!data || !data.length || !analyserNode || !state.context) return 0;
+
+    if (!state.prevBeatSpectrum || state.prevBeatSpectrum.length !== data.length) {
+      state.prevBeatSpectrum = new Uint8Array(data.length);
+      state.prevBeatSpectrum.set(data);
+      state.fluxPrimed = false;
+      return 0;
+    }
+
+    var nyquist = state.context.sampleRate * 0.5;
+    var binHz = nyquist / data.length;
+    var start = Math.max(0, Math.floor(minHz / binHz));
+    var end = Math.min(data.length - 1, Math.ceil(maxHz / binHz));
+    var total = 0;
+    var weight = 0;
+
+    for (var i = start; i <= end; i++) {
+      var current = data[i] / 255;
+      var previous = state.prevBeatSpectrum[i] / 255;
+      var positive = Math.max(0, current - previous);
+      var p = end === start ? 0.5 : (i - start) / (end - start);
+      var w = 0.92 + Math.sin(p * Math.PI) * 0.08;
+      total += positive * w;
+      weight += w;
+      state.prevBeatSpectrum[i] = data[i];
+    }
+
+    if (!state.fluxPrimed) {
+      state.fluxPrimed = true;
+      return 0;
+    }
+    return weight > 0 ? total / weight : 0;
+  }
+
   function spectrumEnergy(data) {
     if (!data || !data.length) return 0;
     var sum = 0;
@@ -175,19 +216,25 @@
   function updateBpm(now) {
     if (!state.lastBeatAt) return;
     var gap = now - state.lastBeatAt;
-    if (gap >= 280 && gap <= 1400) {
-      state.beatIntervals.push(gap);
-      if (state.beatIntervals.length > 10) state.beatIntervals.shift();
-    }
+    if (gap < 90 || gap > 1500) return;
+
+    // Fast repeated kicks can be 1/8 or 1/16 notes. Fold very short gaps up to
+    // a musically useful beat interval instead of throwing them away.
+    var normalizedGap = gap;
+    while (normalizedGap < 280) normalizedGap *= 2;
+    while (normalizedGap > 900) normalizedGap *= 0.5;
+
+    state.beatIntervals.push(normalizedGap);
+    if (state.beatIntervals.length > 12) state.beatIntervals.shift();
     if (state.beatIntervals.length < 3) return;
 
     var center = median(state.beatIntervals);
     var bpm = center > 0 ? 60000 / center : 0;
-    while (bpm > 185) bpm *= 0.5;
+    while (bpm > 190) bpm *= 0.5;
     while (bpm > 0 && bpm < 68) bpm *= 2;
     var spread = center > 0 ? standardDeviation(state.beatIntervals, center) / center : 1;
     state.bpm = Math.round(bpm);
-    state.bpmConfidence = clamp01((state.beatIntervals.length / 7) * (1 - Math.min(0.85, spread * 2.7)));
+    state.bpmConfidence = clamp01((state.beatIntervals.length / 7) * (1 - Math.min(0.85, spread * 2.8)));
   }
 
   function currentPreset() {
@@ -211,12 +258,14 @@
   }
 
   function resetLiveAnalysis() {
-    state.bassMean = 0.075;
-    state.bassDev = 0.025;
     state.bassPeak = 0.22;
     state.midPeak = 0.20;
     state.highPeak = 0.16;
     state.prevBassRaw = 0;
+    state.fastBass = 0;
+    state.slowBass = 0;
+    state.fluxMean = 0.010;
+    state.fluxDev = 0.006;
     state.smoothBass = 0;
     state.smoothMid = 0;
     state.smoothTreble = 0;
@@ -231,12 +280,16 @@
     state.bpm = 0;
     state.bpmConfidence = 0;
     state.beatCount = 0;
+    state.prevBeatSpectrum = null;
+    state.fluxPrimed = false;
     state.lastFrameAt = 0;
     state.lastHudAt = 0;
     state.frame = {
       rawBass: 0,
       rawMid: 0,
       rawTreble: 0,
+      bassFlux: 0,
+      bassTransient: 0,
       bass: 0,
       mid: 0,
       treble: 0,
@@ -260,80 +313,87 @@
     state.beatAnalyser.getByteFrequencyData(state.beatData);
     state.analyser.getByteFrequencyData(state.freqData);
 
-    // Keep the kick detector down in the actual kick/sub-bass area. The old
-    // 38-175 Hz band was wide enough that some bass guitar / lower mids could
-    // look like a kick and create seemingly random pulses.
-    var rawBass = bandAverage(state.beatData, state.beatAnalyser, 38, 128);
+    // Slightly wider than the previous 38-128 Hz window so repeated kick thumps
+    // around 120-145 Hz still register, while staying out of most lower mids.
+    var rawBass = bandAverage(state.beatData, state.beatAnalyser, 38, 145);
+    var bassFlux = lowBandFlux(state.beatData, state.beatAnalyser, 38, 160);
     var rawMid = bandAverage(state.freqData, state.analyser, 260, 1650);
     var rawTreble = bandAverage(state.freqData, state.analyser, 2800, 10500);
     var rawEnergy = spectrumEnergy(state.freqData);
 
-    state.bassPeak = Math.max(rawBass, state.bassPeak * Math.exp(-dt * 0.48), 0.18);
+    state.bassPeak = Math.max(rawBass, state.bassPeak * Math.exp(-dt * 0.55), 0.18);
     state.midPeak = Math.max(rawMid, state.midPeak * Math.exp(-dt * 0.28), 0.18);
     state.highPeak = Math.max(rawTreble, state.highPeak * Math.exp(-dt * 0.30), 0.15);
 
-    var bassLevel = dynamicLevel(rawBass, state.bassPeak, 0.035);
+    var bassLevel = dynamicLevel(rawBass, state.bassPeak, 0.034);
     var midLevel = dynamicLevel(rawMid, state.midPeak, 0.030);
     var highLevel = dynamicLevel(rawTreble, state.highPeak, 0.024);
     var energyLevel = clamp01((rawEnergy - 0.028) / 0.40);
 
-    state.smoothBass = follow(state.smoothBass, bassLevel, dt, 32, 8.5);
+    state.smoothBass = follow(state.smoothBass, bassLevel, dt, 34, 10.0);
     state.smoothMid = follow(state.smoothMid, midLevel, dt, 13, 4.5);
     state.smoothTreble = follow(state.smoothTreble, highLevel, dt, 17, 5.5);
     state.smoothEnergy = follow(state.smoothEnergy, energyLevel, dt, 14, 4.5);
 
-    // HUD bars are deliberately slower and compressed so MID/HIGH cannot sit
-    // permanently full on a loud/compressed master.
-    state.meterBass = follow(state.meterBass, bassLevel, dt, 10, 3.8);
+    state.meterBass = follow(state.meterBass, bassLevel, dt, 11, 4.8);
     state.meterMid = follow(state.meterMid, Math.pow(midLevel, 1.45) * 0.74, dt, 7, 3.0);
     state.meterHigh = follow(state.meterHigh, Math.pow(highLevel, 1.35) * 0.74, dt, 8, 3.2);
 
-    // This is the low-latency album envelope. It is fast on the way up, but the
-    // scale function below gates out the bottom part so tiny FFT fluctuations do
-    // not look like random pulses.
-    state.albumBass = follow(state.albumBass, bassLevel, dt, 64, 8.8);
+    // Separate fast/slow envelopes make each repeated bass onset visible even
+    // when the overall bass level stays high for the whole pattern.
+    state.fastBass = follow(state.fastBass, bassLevel, dt, 92, 28);
+    state.slowBass = follow(state.slowBass, bassLevel, dt, 7.0, 6.0);
+    var bassTransient = Math.max(0, state.fastBass - state.slowBass);
 
-    var meanBlend = rawBass > state.bassMean ? 0.008 : 0.030;
-    state.bassMean += (rawBass - state.bassMean) * meanBlend;
-    var deviation = Math.abs(rawBass - state.bassMean);
-    state.bassDev += (deviation - state.bassDev) * 0.026;
+    // Faster release than before, so a 1/8 or 1/16 pattern can visibly contract
+    // between hits instead of looking like one long swollen album.
+    state.albumBass = follow(state.albumBass, bassLevel, dt, 72, 14.5);
 
     var rise = Math.max(0, rawBass - state.prevBassRaw);
     state.prevBassRaw = rawBass;
-    var ratio = rawBass / Math.max(0.060, state.bassMean);
-    var z = (rawBass - state.bassMean) / Math.max(0.020, state.bassDev);
-    var strongScore = clamp01(
-      Math.max(0, ratio - 1.16) * 1.30
-      + rise * 3.8
-      + Math.max(0, z - 1.10) * 0.16
-    );
 
-    // Short pulse envelope. Decay first so a new kick gets full strength on the
-    // frame it is detected.
-    state.beatPulse *= Math.exp(-dt * 23.0);
+    // Adaptive spectral-flux floor. Continuous bass sits near the floor; each
+    // fresh low-frequency onset produces a positive spike, which is much better
+    // for repeated kicks than a long 285 ms lockout.
+    var fluxDelta = bassFlux - state.fluxMean;
+    var fluxBlend = fluxDelta > 0 ? 0.012 : 0.055;
+    state.fluxMean += fluxDelta * fluxBlend;
+    var fluxAbs = Math.abs(bassFlux - state.fluxMean);
+    state.fluxDev += (fluxAbs - state.fluxDev) * 0.040;
+    var fluxZ = (bassFlux - state.fluxMean) / Math.max(0.0035, state.fluxDev);
+
+    state.beatPulse *= Math.exp(-dt * 28.0);
     if (state.beatPulse < 0.002) state.beatPulse = 0;
 
+    var transientScore = clamp01(bassTransient * 3.8);
+    var fluxScore = clamp01(Math.max(0, fluxZ - 0.45) * 0.60 + bassFlux * 4.2);
+    var riseScore = clamp01(rise * 5.0);
+    var strongScore = clamp01(fluxScore * 0.55 + transientScore * 0.32 + riseScore * 0.13);
+
     var beatDetected = false;
-    var cooldown = 285;
-    var adaptiveFloor = state.bassMean + state.bassDev * 1.45;
+    var minGap = 95;
+    var fluxFloor = state.fluxMean + Math.max(0.0045, state.fluxDev * 0.82);
+    var onsetEvidence = (
+      (bassFlux > fluxFloor && fluxZ > 0.72)
+      || (bassTransient > 0.115 && rise > 0.006)
+    );
+
     if (
-      rawBass > 0.135
-      && rawBass > adaptiveFloor
-      && ratio > 1.16
-      && z > 1.05
-      && rise > 0.016
-      && strongScore > 0.68
-      && (!state.lastBeatAt || now - state.lastBeatAt >= cooldown)
+      bassLevel > 0.34
+      && rawBass > 0.100
+      && onsetEvidence
+      && strongScore > 0.48
+      && (!state.lastBeatAt || now - state.lastBeatAt >= minGap)
     ) {
       updateBpm(now);
       state.lastBeatAt = now;
       state.beatCount++;
-      state.beatPulse = Math.max(state.beatPulse, 0.84 + strongScore * 0.16);
+      state.beatPulse = Math.max(state.beatPulse, 0.72 + strongScore * 0.28);
       beatDetected = true;
     }
 
     var intensity = currentVisualIntensity();
-    var bass = clamp01(state.smoothBass * 0.72 * intensity);
+    var bass = clamp01(state.smoothBass * 0.70 * intensity);
     var mid = clamp01(state.smoothMid * 0.48 * intensity);
     var treble = clamp01(state.smoothTreble * 0.48 * intensity);
     var energy = clamp01(state.smoothEnergy * 0.60);
@@ -342,6 +402,8 @@
       rawBass: rawBass,
       rawMid: rawMid,
       rawTreble: rawTreble,
+      bassFlux: bassFlux,
+      bassTransient: bassTransient,
       bass: bass,
       mid: mid,
       treble: treble,
@@ -386,7 +448,6 @@
         },
       });
 
-      // Force the currently stored value clean as well.
       if (state.active && isAlbumPreset()) slot.value = albumValue;
 
       state.uniformGuards.push({
@@ -404,9 +465,6 @@
     if (state.uniformGuardsInstalled) return;
     try {
       if (typeof uniforms === 'undefined' || !uniforms) return;
-      // These three are what create the travelling/ripple-style movement in the
-      // album presets. DJ mode now handles bass motion by scaling the album as a
-      // whole, so suppress them only while an album preset is active.
       var bassOk = installUniformGuard('uBass', 0);
       var beatOk = installUniformGuard('uBeat', 0);
       var burstOk = installUniformGuard('uBurstAmt', 0);
@@ -438,9 +496,8 @@
     ensureUniformGuards();
 
     if (isAlbumPreset()) {
-      // The album should breathe/scale, not launch a shader ripple. Keep the
-      // original renderer's onset/bass globals quiet and let applyAlbumPulse()
-      // own the low-frequency movement.
+      // Album mode uses whole-object scale pulses only. Keep the original
+      // shader's travelling bass/beat/burst ripples suppressed.
       try { smoothBass = 0; } catch (_) { window.__mineradioSystemBass = 0; }
       try { smoothMid = frame.mid; } catch (_) { window.__mineradioSystemMid = frame.mid; }
       try { smoothTreb = frame.treble; } catch (_) { window.__mineradioSystemTreble = frame.treble; }
@@ -467,7 +524,7 @@
       setUniformValue('uTreble', frame.treble, false);
       setUniformValue('uEnergy', frame.energy, false);
       setUniformValue('uBeat', frame.beat, false);
-      if (frame.beatDetected) setUniformValue('uBurstAmt', 0.36 + frame.beat * 0.12, true);
+      if (frame.beatDetected) setUniformValue('uBurstAmt', 0.34 + frame.beat * 0.10, true);
     }
 
     window.__mineradioSystemAudioFrame = frame;
@@ -485,14 +542,11 @@
   function applyAlbumPulse(frame) {
     if (!frame || !isAlbumPreset()) return;
 
-    // Gate the lower part of the envelope. This keeps normal low-end movement
-    // smooth while preventing tiny fluctuations from looking like random hits.
-    var albumDrive = clamp01((frame.albumBass - 0.26) / 0.74);
-    albumDrive = Math.pow(albumDrive, 1.35);
-
-    // Normal bass gives a subtle 0-2.4% breathe. Only a detected strong kick
-    // adds the larger 5% punch.
-    var scale = 1 + albumDrive * 0.024 + frame.beat * 0.050;
+    // Keep continuous bass breathing subtle. Repeated onsets are represented by
+    // the short beat envelope so separate hits read as separate punches.
+    var albumDrive = clamp01((frame.albumBass - 0.34) / 0.66);
+    albumDrive = Math.pow(albumDrive, 1.45);
+    var scale = 1 + albumDrive * 0.012 + frame.beat * 0.055;
 
     try {
       if (typeof particles !== 'undefined' && particles && particles.scale) {
@@ -507,9 +561,8 @@
 
     var glow = document.getElementById('system-audio-dj-album-glow');
     if (glow) {
-      // No eye-flash: a strong kick only adds a very faint local halo.
-      glow.style.opacity = String(Math.min(0.075, frame.beat * 0.070));
-      glow.style.transform = 'translate(-50%,-50%) scale(' + (0.96 + frame.beat * 0.055).toFixed(3) + ')';
+      glow.style.opacity = String(Math.min(0.065, frame.beat * 0.058));
+      glow.style.transform = 'translate(-50%,-50%) scale(' + (0.96 + frame.beat * 0.050).toFixed(3) + ')';
     }
   }
 
@@ -666,7 +719,7 @@
         '#system-audio-dj-btn.busy{opacity:.72}',
         '#system-audio-dj-hud{position:fixed;top:64px;left:50%;z-index:2147483000;width:260px;transform:translateX(-50%) scale(.98);padding:10px 12px 9px;border:1px solid rgba(255,255,255,.14);border-radius:14px;background:rgba(5,7,10,.72);backdrop-filter:blur(14px);box-shadow:0 10px 28px rgba(0,0,0,.32);color:#fff;font:700 10px/1.1 system-ui,-apple-system,Segoe UI,sans-serif;letter-spacing:.08em;pointer-events:none;opacity:0;transition:opacity .18s ease,transform .18s ease}',
         'body.system-audio-dj-active #system-audio-dj-hud{opacity:.90;transform:translateX(-50%) scale(1)}',
-        '#system-audio-dj-hud.hit{animation:systemDjHudHit 110ms ease-out}',
+        '#system-audio-dj-hud.hit{animation:systemDjHudHit 105ms ease-out}',
         '.system-dj-title{display:flex;align-items:center;gap:7px;margin-bottom:8px}',
         '#system-audio-dj-beat-lamp{display:block;width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 7px rgba(255,255,255,.48);transform-origin:center}',
         '#system-audio-dj-sync-status{margin-left:auto;color:rgba(255,255,255,.52);font-size:9px}',
@@ -675,8 +728,8 @@
         '.system-dj-meter i{display:block;height:4px;overflow:hidden;border-radius:999px;background:rgba(255,255,255,.10)}',
         '.system-dj-meter b{display:block;width:100%;height:100%;transform:scaleX(0);transform-origin:left center;background:rgba(255,255,255,.80);border-radius:inherit;will-change:transform}',
         '.system-dj-bpm{margin-top:7px;text-align:right;color:rgba(255,255,255,.68);font-variant-numeric:tabular-nums;font-size:9px}',
-        '#system-audio-dj-album-glow{position:fixed;z-index:1;left:50%;top:50%;width:min(40vw,40vh);height:min(40vw,40vh);border-radius:50%;pointer-events:none;opacity:0;transform:translate(-50%,-50%) scale(.96);background:radial-gradient(circle,rgba(255,255,255,.08) 0%,rgba(255,255,255,.025) 32%,rgba(255,255,255,0) 72%);filter:blur(14px);mix-blend-mode:screen;will-change:opacity,transform;transition:opacity 38ms linear}',
-        '@keyframes systemDjHudHit{0%{filter:brightness(1.14);transform:translateX(-50%) scale(1.006)}100%{filter:brightness(1);transform:translateX(-50%) scale(1)}}'
+        '#system-audio-dj-album-glow{position:fixed;z-index:1;left:50%;top:50%;width:min(40vw,40vh);height:min(40vw,40vh);border-radius:50%;pointer-events:none;opacity:0;transform:translate(-50%,-50%) scale(.96);background:radial-gradient(circle,rgba(255,255,255,.08) 0%,rgba(255,255,255,.025) 32%,rgba(255,255,255,0) 72%);filter:blur(14px);mix-blend-mode:screen;will-change:opacity,transform;transition:opacity 32ms linear}',
+        '@keyframes systemDjHudHit{0%{filter:brightness(1.12);transform:translateX(-50%) scale(1.005)}100%{filter:brightness(1);transform:translateX(-50%) scale(1)}}'
       ].join('');
       document.head.appendChild(style);
     }
@@ -800,9 +853,6 @@
       mainAnalyser.minDecibels = -96;
       mainAnalyser.maxDecibels = -8;
 
-      // 1024 is kept because the low-frequency bins are still useful for kick
-      // discrimination. 512 would lower latency a little but makes 40-120 Hz too
-      // coarse to reliably separate bass hits from other content.
       realtimeBeatAnalyser.fftSize = 1024;
       realtimeBeatAnalyser.smoothingTimeConstant = 0.0;
       realtimeBeatAnalyser.minDecibels = -96;
@@ -853,7 +903,7 @@
       ensureUniformGuards();
       updateButton();
       startVisualLoop();
-      toast('V2.1 LIVE · album pulse cleaned up · strong kicks only');
+      toast('V2.1 LIVE · repeated bass tracking enabled');
       return true;
     } catch (error) {
       state.starting = false;
